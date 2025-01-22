@@ -1564,6 +1564,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "kafka"
+version = "0.1.0"
+
+[[package]]
 name = "language-tags"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3143,6 +3147,7 @@ dependencies = [
  "dotenv",
  "errors",
  "helpers",
+ "kafka",
  "lib_config",
  "middleware",
  "rand",

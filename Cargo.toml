@@ -8,7 +8,8 @@ members=[
     "crates/services/game_service",
     "crates/services/api_gateway",
     "crates/libs/utils", 
-    "crates/libs/middleware"
+    "crates/libs/middleware",
+    "crates/libs/kafka"
     ]
 
 [workspace.dependencies]

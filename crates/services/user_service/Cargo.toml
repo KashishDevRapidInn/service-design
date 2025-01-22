@@ -11,6 +11,7 @@ lib_config = { path = "../../libs/lib_config" }
 helpers = { path = "../../libs/helpers" }
 errors = { path = "../../libs/errors" }
 middleware = { path = "../../libs/middleware" }
+kafka = { path = "../../libs/kafka/" }
 
 actix-web = "4.9.0"
 actix-session = { version = "0.10.1", features = ["redis-session-rustls"] }
