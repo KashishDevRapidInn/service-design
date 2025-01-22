@@ -1,0 +1,3 @@
+-- Your SQL goes here
+ALTER TABLE admins
+ADD COLUMN email VARCHAR UNIQUE NOT NULL;

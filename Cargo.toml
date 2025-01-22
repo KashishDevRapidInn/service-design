@@ -1,0 +1,16 @@
+[workspace]
+members=[
+    "crates/libs/errors",
+    "crates/libs/helpers",
+    "crates/libs/lib_config",
+    "crates/services/user_service",
+    "crates/services/admin_service",
+    "crates/services/game_service",
+    "crates/services/api_gateway",
+    "crates/libs/utils", 
+    "crates/libs/middleware"
+    ]
+
+[workspace.dependencies]
+
+serde="1.0"

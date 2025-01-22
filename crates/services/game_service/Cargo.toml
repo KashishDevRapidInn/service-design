@@ -1,0 +1,8 @@
+[package]
+name = "game_service"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+diesel={version="2.0", features= ["postgres","r2d2"]}
+dotenv = "0.15"
