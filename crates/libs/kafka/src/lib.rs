@@ -1,1 +1,2 @@
-mod setup;
+pub mod setup;
+pub mod channel;

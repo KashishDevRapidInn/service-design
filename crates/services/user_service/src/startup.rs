@@ -1,4 +1,5 @@
-use lib_config::db::db::PgPool;
+use kafka::{channel::KafkaMessage, setup::setup_kafka_sender};
+use lib_config::{config::configuration::Settings, db::db::PgPool};
 // use crate::middleware::jwt_auth_middleware;
 use crate::routes::{
     health_check::{health_check, set_session, get_session},
@@ -12,6 +13,7 @@ use actix_web_lab::middleware::from_fn;
 use middleware::jwt::jwt_auth_middleware;
 use std::net::TcpListener;
 use tracing_actix_web::TracingLogger;
+use flume::Sender;
 /******************************************/
 // Initializing Redis connection
 /******************************************/
@@ -36,17 +38,19 @@ pub struct Application {
 }
 
 impl Application {
-    pub async fn build(port: u16, pool: PgPool, redis_uri: String) -> Result<Self, std::io::Error> {
-        let listener = if port == 0 {
+    pub async fn build(pool: PgPool, config: &Settings) -> Result<Self, std::io::Error> {
+        let listener = if config.service.user_service_port == 0 {
             TcpListener::bind("127.0.0.1:0")?
         } else {
-            let address = format!("127.0.0.1:{}", port);
+            let address = format!("127.0.0.1:{}", config.service.user_service_port);
             TcpListener::bind(&address)?
         };
 
         let actual_port = listener.local_addr()?.port();
 
-        let server = run_server(listener, pool.clone(), redis_uri).await?;
+        let tx = setup_kafka_sender(&config.kafka.user_url, &config.kafka.user_topics).await;
+        let server = run_server(listener, pool.clone(), config.redis.uri.clone(), tx).await?;
+
         Ok(Self {
             port: actual_port,
             server,
@@ -67,6 +71,7 @@ pub async fn run_server(
     listener: TcpListener,
     pool: PgPool,
     redis_uri: String,
+    kafka_sender: Sender<KafkaMessage<String>>
 ) -> Result<Server, std::io::Error> {
     let redis_store = init_redis(redis_uri).await?;
     let secret_key = generate_secret_key();
@@ -78,6 +83,7 @@ pub async fn run_server(
                 secret_key.clone(),
             ))
             .app_data(web::Data::new(pool.clone()))
+            .app_data(web::Data::new(kafka_sender.clone()))
             .route("/health_check", web::get().to(health_check))
             .route("/set_session", web::get().to(set_session))
             .route("/get_session", web::get().to(get_session))
