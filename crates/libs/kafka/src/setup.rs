@@ -2,7 +2,17 @@ use std::time::Duration;
 
 use flume::{Receiver, Sender};
 use futures::StreamExt;
-use rdkafka::{admin::{AdminClient, AdminOptions, NewTopic, TopicReplication}, client::DefaultClientContext, config::{FromClientConfig, FromClientConfigAndContext}, message::ToBytes, producer::{FutureProducer, FutureRecord}, types::RDKafkaErrorCode, ClientConfig};
+use rdkafka::{
+    admin::{
+        AdminClient, AdminOptions, NewTopic, TopicReplication
+    },
+    client::DefaultClientContext,
+    config::{FromClientConfig, FromClientConfigAndContext},
+    consumer::{Consumer, StreamConsumer},
+    message::{OwnedMessage, ToBytes},
+    producer::{FutureProducer, FutureRecord},
+    types::RDKafkaErrorCode, ClientConfig
+};
 
 use crate::channel::KafkaMessage;
 
@@ -10,7 +20,10 @@ pub trait KafkaTopic {
     fn topic_name(&self) -> String;
 }
 
-pub async fn setup_kafka_sender(kafka_broker_url: &String, topics: &Vec<String>) -> Sender<KafkaMessage<String>> {
+pub async fn setup_kafka_sender(
+    kafka_broker_url: &String,
+    topics: &Vec<String>,
+) -> Sender<KafkaMessage<String>> {
     let (tx, rx) = flume::unbounded();
 
     create_topics(kafka_broker_url, topics).await;
@@ -19,6 +32,41 @@ pub async fn setup_kafka_sender(kafka_broker_url: &String, topics: &Vec<String>)
     tokio::spawn(produce(rx, producer));
 
     tx
+}
+
+pub async fn setup_kafka_receiver(
+    kafka_broker_url: &String,
+    topics: &Vec<String>,
+    consumer_group: &String
+) -> Receiver<OwnedMessage> {
+    let (tx, rx) = flume::unbounded();
+
+    let consumer = create_consumer(kafka_broker_url, consumer_group);
+    consumer.subscribe(&topics.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+        .expect("Failed to subsribe to topics");
+
+    tokio::spawn(consume(tx, consumer));
+
+    rx
+}
+
+pub fn create_consumer(broker_url: &str, group: &str) -> StreamConsumer {
+    
+    match ClientConfig::new()
+        .set("group.id", group)
+        .set("bootstrap.servers", broker_url)
+        .set("enable.auto.commit", "true")
+        .set("auto.commit.interval.ms", "1000")
+        .set("auto.offset.reset", "earliest")
+        .set("session.timeout.ms", "6000")
+        .create(){
+        
+        Ok(client) => {
+            client
+        }
+        Err(e) => panic!(" kafka client error {:?}", e),
+        
+    }
 }
 
 async fn create_topics(url: &str, topics: &Vec<String>) {
@@ -76,6 +124,31 @@ where
         }
         Err(e) => panic!(" kafka client error {:?}", e),
     }
+}
+
+pub async fn consume(
+    tx: Sender<OwnedMessage>,
+    consumer: StreamConsumer
+) {
+    consumer
+        .stream()
+        .for_each_concurrent(Some(10), |message| {
+            let message_sender = tx.clone();
+            async move {
+                match message {
+                    Ok(msg) => {
+                        tracing::info!("received successful message");
+                        if let Err(e) = message_sender.send(msg.detach()) {
+                            tracing::error!("flume channel error : {:?}", e);
+                        }
+                    }
+                    Err(err) => {
+                        tracing::error!("consumer error : {:?}", err);
+                    }
+                }
+            }
+        })
+        .await;
 }
 
 pub async fn produce<T: ToBytes + Clone + Send>(
