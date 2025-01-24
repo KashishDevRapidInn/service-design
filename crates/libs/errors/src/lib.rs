@@ -17,6 +17,9 @@ pub enum CustomError {
 
     #[error("Authentication Error: {0}")]
     AuthenticationError(#[from] AuthError),
+
+    #[error("Unexpected Error: {0}")]
+    KafkaError(#[from] anyhow::Error)
 }
 
 #[derive(Debug, Error)]
