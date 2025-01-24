@@ -27,11 +27,23 @@ pub struct ServiceSettings {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct KafkaSettings {
+    pub user_url: String,
+    pub admin_url: String,
+    pub game_url: String,
+    pub user_topics: Vec<String>,
+    pub admin_topics: Vec<String>,
+    pub game_topics: Vec<String>,
+    pub user_consumer_group: String
+}
+
+#[derive(Debug, Deserialize)]
 pub struct Settings {
     pub service: ServiceSettings,
     pub databases: DatabaseSettings,
     pub redis: RedisSettings,
     pub jwt: JwtSettings,
+    pub kafka: KafkaSettings,
 }
 
 // impl Settings {

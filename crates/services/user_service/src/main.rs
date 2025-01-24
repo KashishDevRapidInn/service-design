@@ -12,7 +12,7 @@ async fn main() -> std::io::Result<()> {
     let pool = establish_connection(&config.databases.user_db_url).await;
     let port = config.service.user_service_port;
 
-    let application = Application::build(port, pool, config.redis.uri).await?;
+    let application = Application::build(pool, &config).await?;
     application.run_until_stopped().await?;
     Ok(())
 }
