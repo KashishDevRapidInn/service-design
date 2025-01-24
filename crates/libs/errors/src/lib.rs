@@ -17,6 +17,9 @@ pub enum CustomError {
 
     #[error("Authentication Error: {0}")]
     AuthenticationError(#[from] AuthError),
+
+    #[error("Unexpected Error")]
+    UnexpectedError(#[from] anyhow::Error)
 }
 
 #[derive(Debug, Error)]
@@ -84,6 +87,7 @@ impl ResponseError for CustomError {
                     HttpResponse::Unauthorized().body(self.to_string())
                 }
             },
+            CustomError::UnexpectedError(err) => HttpResponse::InternalServerError().body(self.to_string())
         }
     }
 }
