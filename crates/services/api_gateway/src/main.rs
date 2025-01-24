@@ -6,7 +6,11 @@ use lib_config::config::configuration;
 use utils::telemetry::{get_subscriber, init_subscriber};
 use serde_json::Value;
 use reqwest::{header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE}};
+use reqwest::header::SET_COOKIE;
+use actix_web::cookie::Cookie;
+use reqwest::header::COOKIE;
 
+use lib_config::session::redis::RedisService;
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let subscriber = get_subscriber("api_gateway".into(), "info".into(), std::io::stdout);
@@ -15,11 +19,12 @@ async fn main() -> std::io::Result<()> {
     let config = configuration::Settings::new().expect("Failed to load configurations");
 
     let client = Arc::new(Client::new());
-
+    let redis_service = RedisService::new(config.redis.uri).await;
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(client.clone())) 
             .wrap(Logger::default())
+            .app_data(web::Data::new(redis_service.clone()))
             .route("/user/{endpoint:.*}", web::get().to(forward_user_get_requests)) 
             .route("/user/{endpoint:.*}", web::post().to(forward_user_post_requests)) 
             .route("/admin/{endpoint:.*}", web::to(forward_admin_requests))
@@ -33,7 +38,7 @@ async fn main() -> std::io::Result<()> {
 async fn forward_user_get_requests(
     path: web::Path<String>, 
     client: web::Data<Arc<Client>>,
-    req:  HttpRequest
+    req:  HttpRequest,
 ) -> HttpResponse {
     let path = path.into_inner();
     
@@ -44,6 +49,7 @@ async fn forward_user_get_requests(
     if let Some(auth_header_value) = auth_header {
         headers.insert(AUTHORIZATION, auth_header_value); 
     }
+
     let response = client
         .get(format!("http://127.0.0.1:{}/{}", config.service.user_service_port, path))
         .headers(headers)
@@ -56,7 +62,11 @@ async fn forward_user_get_requests(
 }
 
 // Handle POST requests to user service
-async fn forward_user_post_requests(path: web::Path<String>, body: web::Json<Value>, client: web::Data<Arc<Client>>) -> HttpResponse {
+async fn forward_user_post_requests(
+    path: web::Path<String>, 
+    body: web::Json<Value>, 
+    client: web::Data<Arc<Client>>
+) -> HttpResponse {
     let path = path.into_inner();
 
     let config = configuration::Settings::new().expect("Failed to load configurations");
@@ -68,7 +78,25 @@ async fn forward_user_post_requests(path: web::Path<String>, body: web::Json<Val
         .expect("Failed to send request to user service");
 
     let body = response.text().await.expect("Failed to read response");
+    // let cookies = response
+    //     .headers()
+    //     .get_all(SET_COOKIE)
+    //     .iter()
+    //     .map(|cookie| {
+    //         // Parsing the cookie string into Cookie object
+    //         Cookie::parse(cookie.to_str().unwrap_or_default()).unwrap()
+    //     })
+    //     .collect::<Vec<Cookie>>();
+
+
     HttpResponse::Ok().body(body)
+    
+    // for cookie in cookies {
+    //     response.add_cookie(&cookie).expect("Failed to add cookie to response");
+    // }
+
+    // response
+   
 }
 
 async fn forward_admin_requests(path: web::Path<String>, client: web::Data<Arc<Client>>) -> HttpResponse {
