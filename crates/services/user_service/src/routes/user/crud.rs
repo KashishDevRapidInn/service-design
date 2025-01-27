@@ -1,4 +1,6 @@
+use flume::Sender;
 use helpers::auth_jwt::auth::create_jwt;
+use kafka::channel::{push_to_broker, KafkaMessage};
 use lib_config::db::db::PgPool;
 use errors::{AuthError, CustomError, DbError};
 use crate::schema::users::dsl::*;
@@ -14,6 +16,8 @@ use serde::Deserialize;
 use serde_json::json;
 use tracing::instrument;
 use uuid::Uuid;
+
+use super::model::{RegisterUserMessage, User};
 
 
 fn generate_random_salt() -> SaltString {
@@ -33,6 +37,7 @@ pub async fn register_user(
     pool: web::Data<PgPool>,
     req_user: web::Json<CreateUserBody>,
     session: TypedSession,
+    kafka_producer: web::Data<Sender<KafkaMessage<String>>>
 ) -> Result<HttpResponse, CustomError> {
     let pool = pool.clone();
     let user_data = req_user.into_inner();
@@ -52,21 +57,21 @@ pub async fn register_user(
         .hash_password(user_password.as_bytes(), &salt)
         .map_err(|err| CustomError::HashingError(err.to_string()))?;
 
-    let result = diesel::insert_into(users)
+    let result: RegisterUserMessage = diesel::insert_into(users)
         .values((
             id.eq(user_id),
             username.eq(validated_name.as_ref()),
             password_hash.eq(password_hashed.to_string()),
             email.eq(validated_email.as_ref()),
         ))
-        .execute(&mut conn)
+        .returning(User::as_returning())
+        .get_result(&mut conn)
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::QueryBuilderError(err.to_string())))?;
-    if result == 0 {
-        return Err(CustomError::DatabaseError(DbError::InsertionError(
-            "Failed data insertion in db".to_string(),
-        )));
-    }
+        .map_err(|err| CustomError::DatabaseError(DbError::InsertionError(err.to_string())))?
+        .into();
+
+    let _ = push_to_broker(&kafka_producer, &result).await;
+
     let _ = session.insert_user_id(user_id);
     Ok(HttpResponse::Ok().body("User created successfully".to_string()))
 }
