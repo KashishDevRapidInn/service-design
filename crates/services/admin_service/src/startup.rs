@@ -1,9 +1,10 @@
-use lib_config::db::db::PgPool;
+use flume::Sender;
+use kafka::{channel::KafkaMessage, setup::{setup_kafka_receiver, setup_kafka_sender}};
+use lib_config::{config::configuration::Settings, db::db::PgPool};
 // use crate::middleware::jwt_auth_middleware;
-use crate::routes::{
-    health_check::{health_check, set_session, get_session},
-    admin::crud::{register_admin,login_admin,logout_admin}
-};
+use crate::{kafka_handler::process_kafka_message, routes::{
+    admin::crud::{login_admin, logout_admin, register_admin}, health_check::{get_session, health_check, set_session}
+}};
 use actix_session::storage::RedisSessionStore;
 use actix_session::SessionMiddleware;
 use actix_web::cookie::Key;
@@ -37,17 +38,26 @@ pub struct Application {
 }
 
 impl Application {
-    pub async fn build(port: u16, pool: PgPool, redis_uri: String) -> Result<Self, std::io::Error> {
-        let listener = if port == 0 {
+    pub async fn build(pool: PgPool, config: &Settings) -> Result<Self, std::io::Error> {
+        let listener = if config.service.admin_service_port== 0 {
             TcpListener::bind("127.0.0.1:0")?
         } else {
-            let address = format!("127.0.0.1:{}", port);
+            let address = format!("127.0.0.1:{}", config.service.admin_service_port);
             TcpListener::bind(&address)?
         };
 
         let actual_port = listener.local_addr()?.port();
 
-        let server = run_server(listener, pool.clone(), redis_uri).await?;
+        let consumer_group = "admin_group".to_string();
+        let tx = setup_kafka_sender(&config.kafka.admin_url, &config.kafka.admin_topics).await;
+        let rx = setup_kafka_receiver(&config.kafka.admin_url, &config.kafka.admin_subscribe_topics, &consumer_group).await;
+
+        let pool_clone = pool.clone();
+        tokio::spawn(async move {
+            process_kafka_message(rx, pool_clone).await;
+        });
+
+        let server = run_server(listener, pool.clone(), config.redis.uri.clone(), tx).await?;
         Ok(Self {
             port: actual_port,
             server,
@@ -68,6 +78,7 @@ pub async fn run_server(
     listener: TcpListener,
     pool: PgPool,
     redis_uri: String,
+    kafka_sender: Sender<KafkaMessage<String>>
 ) -> Result<Server, std::io::Error> {
     let redis_store = init_redis(redis_uri).await?;
     let secret_key = generate_secret_key();
@@ -79,6 +90,7 @@ pub async fn run_server(
                 secret_key.clone(),
             ))
             .app_data(web::Data::new(pool.clone()))
+            .app_data(web::Data::new(kafka_sender.clone()))
             .route("/health_check", web::get().to(health_check))
             .route("/set_session", web::get().to(set_session))
             .route("/get_session", web::get().to(get_session))
@@ -90,7 +102,7 @@ pub async fn run_server(
                                 .route("/login", web::post().to(login_admin))
                                 .route("/logout", web::post().to(logout_admin))
                 )
-            )       
+            )
     })
     .listen(listener)?
     .run();

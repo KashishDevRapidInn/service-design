@@ -10,9 +10,8 @@ async fn main() -> std::io::Result<()> {
 
     let config = configuration::Settings::new().expect("Failed to load configurations");
     let pool = establish_connection(&config.databases.admin_db_url).await;
-    let port = config.service.admin_service_port;
 
-    let application = Application::build(port, pool, config.redis.uri).await?;
+    let application = Application::build(pool, &config).await?;
     application.run_until_stopped().await?;
     Ok(())
 }
