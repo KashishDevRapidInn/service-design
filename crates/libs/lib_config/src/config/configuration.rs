@@ -34,7 +34,8 @@ pub struct KafkaSettings {
     pub user_topics: Vec<String>,
     pub admin_topics: Vec<String>,
     pub game_topics: Vec<String>,
-    pub user_consumer_group: String
+    pub user_consumer_group: String,
+    pub admin_subscribe_topics: Vec<String>
 }
 
 #[derive(Debug, Deserialize)]

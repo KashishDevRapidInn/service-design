@@ -26,7 +26,17 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    users (id) {
+        id -> Uuid,
+        username -> Varchar,
+        email -> Varchar,
+        created_at -> Nullable<Timestamp>,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(
     admins,
     games,
+    users,
 );
