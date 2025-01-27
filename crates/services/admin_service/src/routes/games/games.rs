@@ -1,3 +1,6 @@
+use anyhow::Context;
+use flume::Sender;
+use kafka::channel::{push_to_broker, KafkaMessage};
 use helpers::auth_jwt::auth::Claims;
 use lib_config::db::db::PgPool;
 use errors::{AuthError, CustomError, DbError};
@@ -10,9 +13,12 @@ use tracing::instrument;
 use crate::schema::games::dsl::*;
 use lib_config::session::redis::RedisService;
 
+use super::models::KafkaGameMessage;
+
 pub async fn create_game(
     pool: web::Data<PgPool>,
     req_game: web::Json<CreateGameBody>, 
+    kafka_producer: web::Data<Sender<KafkaMessage<String>>>,
     admin: web::ReqData<Claims>,
 ) -> Result<HttpResponse, CustomError> {
     let pool = pool.clone();
@@ -51,6 +57,11 @@ pub async fn create_game(
         )));
     }
 
+    let message = KafkaGameMessage::Create(&new_game);
+    let _ = push_to_broker(&kafka_producer, &message)
+        .await
+        .context("Failed to send message to broker");
+
     Ok(HttpResponse::Created().json(new_game))
 }
 
@@ -83,6 +94,7 @@ pub async fn update_game(
     pool: web::Data<PgPool>,
     game_slug: web::Path<String>,
     game_data: web::Json<UpdateGameBody>,
+    kafka_producer: web::Data<Sender<KafkaMessage<String>>>
 ) -> Result<HttpResponse, CustomError> {
     let game_slug = game_slug.into_inner();
     let updated_data = game_data.into_inner();
@@ -93,34 +105,41 @@ pub async fn update_game(
         .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
 
     let mut game: Game = games
-        .filter(slug.eq(game_slug.clone()))
+        .filter(slug.eq(&game_slug))
         .first(&mut conn)
         .await
         .map_err(|err| CustomError::DatabaseError(DbError::QueryBuilderError(err.to_string())))?;
 
-    if let Some(new_title) = updated_data.title {
+
+    if let Some(new_title) = updated_data.title.clone() {
         game.title = Some(new_title);
     }
-    if let Some(new_description) = updated_data.description {
+    if let Some(new_description) = updated_data.description.clone() {
         game.description = Some(new_description);
     }
-    if let Some(new_genre) = updated_data.genre {
+    if let Some(new_genre) = updated_data.genre.clone() {
         game.genre = Some(new_genre);
     }
 
     diesel::update(games
-        .filter(slug.eq(game_slug)))
+        .filter(slug.eq(&game_slug)))
         .set(&game)
         .execute(&mut conn)
         .await
         .map_err(|err| CustomError::DatabaseError(DbError::QueryBuilderError(err.to_string())))?;
+    
+    let message = KafkaGameMessage::Update { slug: &game_slug, changes: &updated_data };
+    let _ = push_to_broker(&kafka_producer, &message)
+        .await
+        .context("Failed to push update game data to broker")?;
 
     Ok(HttpResponse::Ok().json(game))
 }
 
 pub async fn delete_game(
     game_slug: web::Path<String>,
-    pool: web::Data<PgPool>
+    pool: web::Data<PgPool>,
+    kafka_producer: web::Data<Sender<KafkaMessage<String>>>
 ) -> Result<HttpResponse, CustomError> {
     let game_slug = game_slug.into_inner();
 
@@ -130,7 +149,7 @@ pub async fn delete_game(
         .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
 
     
-    let rows_deleted = diesel::delete(games.filter(slug.eq(game_slug)))
+    let rows_deleted = diesel::delete(games.filter(slug.eq(&game_slug)))
         .execute(&mut conn)
         .await
         .map_err(|err| CustomError::DatabaseError(DbError::QueryBuilderError(err.to_string())))?;
@@ -141,5 +160,5 @@ pub async fn delete_game(
         )));
     }
 
-    Ok(HttpResponse::Ok().json({ "Game deleted successfully" }))
+    Ok(HttpResponse::Ok().json("Game deleted successfully"))
 }

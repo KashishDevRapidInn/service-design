@@ -138,7 +138,7 @@ pub async fn consume(
             async move {
                 match message {
                     Ok(msg) => {
-                        tracing::info!("received successful message");
+                        tracing::info!("received message successfully");
                         if let Err(e) = message_sender.send(msg.detach()) {
                             tracing::error!("flume channel error : {:?}", e);
                         }
@@ -169,7 +169,7 @@ pub async fn produce<T: ToBytes + Clone + Send>(
                     .await
                 {
                     Ok(_) => {
-                        tracing::info!("sucessfully deliverd to kafka");
+                        tracing::info!("sucessfully delivered to kafka broker");
                     }
                     Err((err, msg)) => {
                         tracing::error!("kafka producer error : {:?}, message : {:?}", err, msg);
