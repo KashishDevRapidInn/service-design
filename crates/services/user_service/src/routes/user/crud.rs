@@ -1,4 +1,4 @@
-use helpers::auth_jwt::auth::create_jwt;
+use helpers::auth_jwt::auth::{create_jwt, Claims};
 use lib_config::db::db::PgPool;
 use errors::{AuthError, CustomError, DbError};
 use crate::schema::users::dsl::*;
@@ -16,6 +16,7 @@ use uuid::Uuid;
 use actix_web::cookie::{Cookie, CookieJar};
 use actix_web::cookie::time::Duration;
 use lib_config::session::redis::RedisService;
+use actix_web::HttpMessage; //for .extensions()
 /******************************************/
 // Registering user Route
 /******************************************/
@@ -84,25 +85,14 @@ pub async fn login_user(
 
     match user_id {
         Ok(id_user) => {
-            let token = create_jwt(&id_user.to_string()).map_err(|err| {
+
+            let (token, sid) = create_jwt(&id_user.to_string()).map_err(|err| {
                 CustomError::AuthenticationError(AuthError::JwtAuthenticationError(err.to_string()))
             })?;
            
-            let session_id = Uuid::new_v4().to_string();
-            // Set session in Redis
-            let _= redis_service.set_session(&session_id, &id_user.to_string()).await;
-            let cookie = Cookie::build("id", session_id)  // Cookie name and value
-                .path("/")  
-                .secure(true) 
-                .http_only(true) 
-                .max_age(Duration::new(3600, 0))  // Set the cookie's validity time (1 hour)
-                .finish();
+            let _= redis_service.set_session(&sid, &id_user.to_string()).await;
 
-            // Return the response with the token and set the cookie
-            Ok(HttpResponse::Ok()
-                .cookie(cookie)  // Set the cookie
-                .json(json!({"token": token}))) 
-            // Ok(HttpResponse::Ok().json(json!({"token": token})))
+            Ok(HttpResponse::Ok().json(json!({"token": token})))
         }
         Err(err) => {
             return Err(CustomError::AuthenticationError(
@@ -135,13 +125,15 @@ pub async fn logout_user(session: TypedSession) -> HttpResponse {
 #[instrument(name = "Get user", skip(pool, req, redis_service))]
 pub async fn view_user(
     pool: web::Data<PgPool>,
-    req: HttpRequest,
+    req: web::ReqData<Claims>,
     redis_service: web::Data<RedisService>
 ) -> Result<HttpResponse, CustomError> {
-    let session_id = req.cookie("id")
-    .ok_or_else(|| CustomError::AuthenticationError(AuthError::SessionAuthenticationError("Session not found".to_string())))?
-    .value()
-    .to_string();
+    // let session_id: String = req
+    //     .extensions()
+    //     .get::<String>()
+    //     .ok_or_else(|| CustomError::AuthenticationError(AuthError::SessionAuthenticationError("Session not found".to_string())))?
+    //     .clone();
+    let session_id= req.into_inner().sid;
 
     let user_id_str = redis_service.get_session(session_id).await.map_err(|_| {
         CustomError::AuthenticationError(AuthError::SessionAuthenticationError(

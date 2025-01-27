@@ -80,15 +80,16 @@ async fn create_topics(url: &str, topics: &Vec<String>) {
             .create_topics(&[new_topic], &opts)
             .await
             .expect("could not create the topic");
+
         for admin_result in admin_res {
             match admin_result {
-                Ok(_) => {println!("created: {}", topic)}
+                Ok(_) => {println!("created: {:?}", topic)}
                 Err((topic, err)) => {
                     if !matches!(err, RDKafkaErrorCode::TopicAlreadyExists) {
                         panic!("{:?} -> {:?}", topic, err);
                     }
 
-                    println!("already exists: {}", topic)
+                    tracing::info!("already exists")
                 }
             }
         }
