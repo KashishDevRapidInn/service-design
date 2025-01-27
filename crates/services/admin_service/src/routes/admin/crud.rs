@@ -14,6 +14,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tracing::instrument;
 use uuid::Uuid;
+use lib_config::session::redis::RedisService;
 
 /******************************************/
 // Registering admin Route
@@ -22,11 +23,10 @@ use uuid::Uuid;
  * @route   POST /register
  * @access  Public
  */
-#[instrument(name = "Register a new admin", skip(req_admin, pool, session), fields(username = %req_admin.username, email = %req_admin.email))]
+#[instrument(name = "Register a new admin", skip(req_admin, pool), fields(username = %req_admin.username, email = %req_admin.email))]
 pub async fn register_admin(
     pool: web::Data<PgPool>,
     req_admin: web::Json<CreateUserBody>,
-    session: TypedSession,
 ) -> Result<HttpResponse, CustomError> {
     let pool = pool.clone();
     let admin_data = req_admin.into_inner();
@@ -61,7 +61,6 @@ pub async fn register_admin(
             "Failed data insertion in db".to_string(),
         )));
     }
-    let _ = session.insert_user_id(admin_id);
     Ok(HttpResponse::Ok().body("Admin created successfully".to_string()))
 }
 
@@ -72,21 +71,21 @@ pub async fn register_admin(
  * @route   POST /login
  * @access  Public
  */
-#[instrument(name = "Login a admin", skip(req_login, pool, session), fields(username = %req_login.email))]
+#[instrument(name = "Login a admin", skip(req_login, pool, redis_service), fields(username = %req_login.email))]
 
 pub async fn login_admin(
     pool: web::Data<PgPool>,
     req_login: web::Json<LoginUserBody>,
-    session: TypedSession,
+    redis_service: web::Data<RedisService>,
 ) -> Result<HttpResponse, CustomError> {
     let admin_id = validate_credentials(&pool, &req_login.into_inner()).await;
 
     match admin_id {
         Ok(id_admin) => {
-            let token = create_jwt(&id_admin.to_string()).map_err(|err| {
+            let (token, sid) = create_jwt(&id_admin.to_string()).map_err(|err| {
                 CustomError::AuthenticationError(AuthError::JwtAuthenticationError(err.to_string()))
             })?;
-            let _ = session.insert_user_id(id_admin);
+            let _= redis_service.set_session(&sid, &id_admin.to_string()).await;
             Ok(HttpResponse::Ok().json(json!({"token": token})))
         }
         Err(err) => {
@@ -109,3 +108,25 @@ pub async fn logout_admin(session: TypedSession) -> HttpResponse {
     session.log_out();
     HttpResponse::Ok().body("Logout successfull")
 }
+
+
+// #[instrument(name = "Get user", skip(pool))]
+// pub async fn load_by_id(
+//     pool: web::Data<PgPool>,
+//     admin_id: Uuid
+// ) -> Result<HttpResponse, CustomError> {
+    
+//     let mut conn = pool
+//         .get()
+//         .await
+//         .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
+
+
+//     let user: (String, String) = admins
+//         .filter(id.eq(admin_id))
+//         .select((username, email))
+//         .first(&mut conn)
+//         .await
+//         .map_err(|err| CustomError::DatabaseError(DbError::QueryBuilderError(err.to_string())))?;
+//     Ok(HttpResponse::Ok().json(user))
+// }

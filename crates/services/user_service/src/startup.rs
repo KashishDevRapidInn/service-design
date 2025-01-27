@@ -13,6 +13,9 @@ use actix_web_lab::middleware::from_fn;
 use middleware::jwt::jwt_auth_middleware;
 use std::net::TcpListener;
 use tracing_actix_web::TracingLogger;
+
+use lib_config::session::redis::RedisService;
+
 use flume::Sender;
 /******************************************/
 // Initializing Redis connection
@@ -73,8 +76,11 @@ pub async fn run_server(
     redis_uri: String,
     kafka_sender: Sender<KafkaMessage<String>>
 ) -> Result<Server, std::io::Error> {
-    let redis_store = init_redis(redis_uri).await?;
+    let redis_store = init_redis(redis_uri.clone()).await?;
     let secret_key = generate_secret_key();
+
+    let redis_service = RedisService::new(redis_uri).await;
+
     let server = HttpServer::new(move || {
         App::new()
             .wrap(TracingLogger::default())
@@ -82,6 +88,7 @@ pub async fn run_server(
                 redis_store.clone(),
                 secret_key.clone(),
             ))
+            .app_data(web::Data::new(redis_service.clone()))
             .app_data(web::Data::new(pool.clone()))
             .app_data(web::Data::new(kafka_sender.clone()))
             .route("/health_check", web::get().to(health_check))

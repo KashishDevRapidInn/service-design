@@ -2,7 +2,8 @@ use lib_config::db::db::PgPool;
 // use crate::middleware::jwt_auth_middleware;
 use crate::routes::{
     health_check::{health_check, set_session, get_session},
-    admin::crud::{register_admin,login_admin,logout_admin}
+    admin::crud::{register_admin,login_admin,logout_admin},
+    games::games::{create_game, get_game, update_game, delete_game}
 };
 use actix_session::storage::RedisSessionStore;
 use actix_session::SessionMiddleware;
@@ -12,6 +13,7 @@ use actix_web_lab::middleware::from_fn;
 use middleware::jwt::jwt_auth_middleware;
 use std::net::TcpListener;
 use tracing_actix_web::TracingLogger;
+use lib_config::session::redis::RedisService;
 
 /******************************************/
 // Initializing Redis connection
@@ -69,8 +71,9 @@ pub async fn run_server(
     pool: PgPool,
     redis_uri: String,
 ) -> Result<Server, std::io::Error> {
-    let redis_store = init_redis(redis_uri).await?;
+    let redis_store = init_redis(redis_uri.clone()).await?;
     let secret_key = generate_secret_key();
+    let redis_service = RedisService::new(redis_uri).await;
     let server = HttpServer::new(move || {
         App::new()
             .wrap(TracingLogger::default())
@@ -79,6 +82,7 @@ pub async fn run_server(
                 secret_key.clone(),
             ))
             .app_data(web::Data::new(pool.clone()))
+            .app_data(web::Data::new(redis_service.clone()))
             .route("/health_check", web::get().to(health_check))
             .route("/set_session", web::get().to(set_session))
             .route("/get_session", web::get().to(get_session))
@@ -89,6 +93,14 @@ pub async fn run_server(
                                 .route("/register", web::post().to(register_admin))
                                 .route("/login", web::post().to(login_admin))
                                 .route("/logout", web::post().to(logout_admin))
+                )
+                .service(
+                    web::scope("/auth/games")
+                    .wrap(from_fn(jwt_auth_middleware))
+                    .route("/new", web::post().to(create_game))
+                    .route("/get/{slug}", web::get().to(get_game))
+                    .route("/update/{slug}", web::patch().to(update_game))
+                    .route("/remove/{slug}", web::delete().to(delete_game))
                 )
             )       
     })
