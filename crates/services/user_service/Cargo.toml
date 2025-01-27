@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-diesel={version="2.0", features= ["postgres","r2d2", "uuid"]}
+diesel={ version = "2.0", features = ["chrono", "postgres", "r2d2", "uuid"] }
 dotenv = "0.15"
 utils = { path = "../../libs/utils" }
 lib_config = { path = "../../libs/lib_config" }

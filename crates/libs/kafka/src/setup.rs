@@ -83,13 +83,13 @@ async fn create_topics(url: &str, topics: &Vec<String>) {
 
         for admin_result in admin_res {
             match admin_result {
-                Ok(_) => {println!("created: {:?}", topic)}
+                Ok(_) => {tracing::info!("created: {}", topic)}
                 Err((topic, err)) => {
                     if !matches!(err, RDKafkaErrorCode::TopicAlreadyExists) {
                         panic!("{:?} -> {:?}", topic, err);
                     }
 
-                    tracing::info!("already exists")
+                    tracing::info!("already exists: {}", topic)
                 }
             }
         }

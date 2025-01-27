@@ -7,3 +7,4 @@ edition = "2021"
 
 thiserror = "1.0.64"
 actix-web = "4.9.0"
+anyhow = "1.0.95"
