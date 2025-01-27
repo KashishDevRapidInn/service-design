@@ -24,7 +24,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(redis_service.clone()))
             .route("/{service}/{endpoint:.*}", web::to(forward_requests))
     })
-    .bind(format!("127.0.0.1:{}", config.service.gateway_service_port))?
+    .bind(format!("{}:{}", config.domain.gateway_service_domain, config.service.gateway_service_port))?
     .run()
     .await
 }
@@ -39,9 +39,9 @@ async fn forward_requests(
     let config = configuration::Settings::new().expect("Failed to load configurations");
 
     let base_url = match service.as_str() {
-        "user" => format!("http://127.0.0.1:{}/{}", config.service.user_service_port, endpoint),
-        "admin" => format!("http://127.0.0.1:{}/{}", config.service.admin_service_port, endpoint),
-        "game" => format!("http://127.0.0.1:{}/{}", config.service.game_service_port, endpoint),
+        "user" => format!("http://{}:{}/{}", config.domain.user_service_domain, config.service.user_service_port, endpoint),
+        "admin" => format!("http://{}:{}/{}", config.domain.admin_service_domain, config.service.admin_service_port, endpoint),
+        "game" => format!("http://{}:{}/{}", config.domain.game_service_domain, config.service.game_service_port, endpoint),
         _ => return HttpResponse::BadRequest().body("Invalid service name"),
     };
 
