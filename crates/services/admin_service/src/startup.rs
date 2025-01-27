@@ -3,7 +3,7 @@ use kafka::{channel::KafkaMessage, setup::{setup_kafka_receiver, setup_kafka_sen
 use lib_config::{config::configuration::Settings, db::db::PgPool};
 // use crate::middleware::jwt_auth_middleware;
 use crate::{kafka_handler::process_kafka_message, routes::{
-    admin::crud::{login_admin, logout_admin, register_admin}, health_check::{get_session, health_check, set_session}
+    admin::crud::{login_admin, logout_admin, register_admin}, games::games::{create_game, delete_game, get_game, update_game}, health_check::{get_session, health_check, set_session}
 }};
 use actix_session::storage::RedisSessionStore;
 use actix_session::SessionMiddleware;
@@ -102,6 +102,10 @@ pub async fn run_server(
                                 .route("/login", web::post().to(login_admin))
                                 .route("/logout", web::post().to(logout_admin))
                 )
+                .route("/game", web::get().to(get_game))
+                .route("/game", web::post().to(create_game))
+                .route("/game/{game_slug}", web::patch().to(update_game))
+                .route("/game/{game_slug}", web::delete().to(delete_game))
             )
     })
     .listen(listener)?

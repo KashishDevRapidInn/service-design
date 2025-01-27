@@ -168,7 +168,7 @@ pub async fn produce<T: ToBytes + Clone + Send>(
                     .await
                 {
                     Ok(_) => {
-                        tracing::info!("sucessfully deliverd to kafka");
+                        tracing::info!("sucessfully delivered to kafka broker");
                     }
                     Err((err, msg)) => {
                         tracing::error!("kafka producer error : {:?}, message : {:?}", err, msg);

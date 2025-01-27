@@ -275,6 +275,7 @@ dependencies = [
  "actix-session",
  "actix-web",
  "actix-web-lab",
+ "anyhow",
  "argon2",
  "chrono",
  "config",
