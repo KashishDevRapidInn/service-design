@@ -6,7 +6,7 @@ use uuid::Uuid;
 // Health check route
 /******************************************/
 pub async fn health_check() -> HttpResponse {
-    HttpResponse::Ok().json("application working")
+    HttpResponse::Ok().json("admin application working")
 }
 
 /******************************************/

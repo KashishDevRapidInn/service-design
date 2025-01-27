@@ -27,8 +27,6 @@ pub struct CreateGameBody {
     pub title: Option<String>,
     pub description: Option<String>,
     pub genre: Option<String>,
-    pub created_by_uid: Option<Uuid>,
-    pub is_admin: Option<bool>,
 }
 #[derive(Serialize, Deserialize, Insertable, Debug, Queryable)]
 #[diesel(table_name = games)]

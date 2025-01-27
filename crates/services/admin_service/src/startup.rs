@@ -2,9 +2,13 @@ use flume::Sender;
 use kafka::{channel::KafkaMessage, setup::{setup_kafka_receiver, setup_kafka_sender}};
 use lib_config::{config::configuration::Settings, db::db::PgPool};
 // use crate::middleware::jwt_auth_middleware;
-use crate::{kafka_handler::process_kafka_message, routes::{
-    admin::crud::{login_admin, logout_admin, register_admin}, games::games::{create_game, delete_game, get_game, update_game}, health_check::{get_session, health_check, set_session}
-}};
+use crate::routes::{
+    health_check::{health_check, set_session, get_session},
+    admin::crud::{register_admin,login_admin,logout_admin},
+    games::games::{create_game, get_game, update_game, delete_game}
+};
+
+use crate::kafka_handler::process_kafka_message;
 use actix_session::storage::RedisSessionStore;
 use actix_session::SessionMiddleware;
 use actix_web::cookie::Key;
@@ -13,6 +17,7 @@ use actix_web_lab::middleware::from_fn;
 use middleware::jwt::jwt_auth_middleware;
 use std::net::TcpListener;
 use tracing_actix_web::TracingLogger;
+use lib_config::session::redis::RedisService;
 
 /******************************************/
 // Initializing Redis connection
@@ -80,8 +85,9 @@ pub async fn run_server(
     redis_uri: String,
     kafka_sender: Sender<KafkaMessage<String>>
 ) -> Result<Server, std::io::Error> {
-    let redis_store = init_redis(redis_uri).await?;
+    let redis_store = init_redis(redis_uri.clone()).await?;
     let secret_key = generate_secret_key();
+    let redis_service = RedisService::new(redis_uri).await;
     let server = HttpServer::new(move || {
         App::new()
             .wrap(TracingLogger::default())
@@ -91,6 +97,7 @@ pub async fn run_server(
             ))
             .app_data(web::Data::new(pool.clone()))
             .app_data(web::Data::new(kafka_sender.clone()))
+            .app_data(web::Data::new(redis_service.clone()))
             .route("/health_check", web::get().to(health_check))
             .route("/set_session", web::get().to(set_session))
             .route("/get_session", web::get().to(get_session))
@@ -102,11 +109,15 @@ pub async fn run_server(
                                 .route("/login", web::post().to(login_admin))
                                 .route("/logout", web::post().to(logout_admin))
                 )
-                .route("/game", web::get().to(get_game))
-                .route("/game", web::post().to(create_game))
-                .route("/game/{game_slug}", web::patch().to(update_game))
-                .route("/game/{game_slug}", web::delete().to(delete_game))
-            )
+                .service(
+                    web::scope("/auth/games")
+                    .wrap(from_fn(jwt_auth_middleware))
+                    .route("/new", web::post().to(create_game))
+                    .route("/get/{slug}", web::get().to(get_game))
+                    .route("/update/{slug}", web::patch().to(update_game))
+                    .route("/remove/{slug}", web::delete().to(delete_game))
+                )
+            )       
     })
     .listen(listener)?
     .run();
