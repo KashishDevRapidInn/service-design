@@ -3,9 +3,7 @@ use kafka::{channel::KafkaMessage, setup::{setup_kafka_receiver, setup_kafka_sen
 use lib_config::{config::configuration::Settings, db::db::PgPool};
 // use crate::middleware::jwt_auth_middleware;
 use crate::routes::{
-    health_check::{health_check, set_session, get_session},
-    admin::crud::{register_admin,login_admin,logout_admin},
-    games::games::{create_game, get_game, update_game, delete_game}
+    admin::{crud::{login_admin, logout_admin, register_admin}, user::{delete_user, get_user, get_user_ids}}, games::games::{create_game, delete_game, get_game, update_game}, health_check::{get_session, health_check, set_session}
 };
 
 use crate::kafka_handler::process_kafka_message;
@@ -116,6 +114,13 @@ pub async fn run_server(
                     .route("/get/{slug}", web::get().to(get_game))
                     .route("/update/{slug}", web::patch().to(update_game))
                     .route("/remove/{slug}", web::delete().to(delete_game))
+                )
+                .service(
+                    web::scope("/auth/users")
+                    .wrap(from_fn(jwt_auth_middleware))
+                    .route("/", web::get().to(get_user_ids))
+                    .route("/{user_id}", web::get().to(get_user))
+                    .route("/{user_id}", web::delete().to(delete_user))
                 )
             )       
     })
