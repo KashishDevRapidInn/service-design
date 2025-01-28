@@ -1,10 +1,10 @@
-use kafka::{channel::KafkaMessage, setup::setup_kafka_sender};
+use kafka::{channel::KafkaMessage, setup::{setup_kafka_receiver, setup_kafka_sender}};
 use lib_config::{config::configuration::Settings, db::db::PgPool};
 // use crate::middleware::jwt_auth_middleware;
-use crate::routes::{
-    health_check::{health_check, set_session, get_session},
-    user::crud::{register_user,login_user,logout_user,view_user}
-};
+use crate::{kafka_handler::process_kafka_message, routes::{
+    health_check::{get_session, health_check, set_session},
+    user::crud::{login_user, logout_user, register_user, view_user}
+}};
 use actix_session::storage::RedisSessionStore;
 use actix_session::SessionMiddleware;
 use actix_web::cookie::Key;
@@ -51,9 +51,20 @@ impl Application {
 
         let actual_port = listener.local_addr()?.port();
 
+        let consumer_group = "user_group".to_string();
         let tx = setup_kafka_sender(&config.kafka.user_url, &config.kafka.user_topics).await;
-        let server = run_server(listener, pool.clone(), config.redis.uri.clone(), tx).await?;
+        let rx = setup_kafka_receiver(
+            &config.kafka.user_url,
+            &config.kafka.user_subscribe_topics,
+            &consumer_group
+        ).await;
 
+        let pool_clone = pool.clone();
+        tokio::spawn(async move {
+            process_kafka_message(rx, pool_clone).await;
+        });
+
+        let server = run_server(listener, pool.clone(), config.redis.uri.clone(), tx).await?;
         Ok(Self {
             port: actual_port,
             server,
