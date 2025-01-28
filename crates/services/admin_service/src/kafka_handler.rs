@@ -6,7 +6,7 @@ use lib_config::db::db::PgPool;
 use rdkafka::message::OwnedMessage;
 use futures::StreamExt;
 use rdkafka::Message;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tracing::instrument;
 
 #[derive(Deserialize, Insertable, Debug)]
@@ -16,11 +16,6 @@ pub struct ReceivedUser {
     pub username: String,
     pub email: String,
     pub created_at: NaiveDateTime
-}
-
-#[derive(Serialize)]
-pub struct DeleteUser {
-    pub id: uuid::Uuid
 }
 
 pub async fn process_kafka_message(

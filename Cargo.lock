@@ -3517,6 +3517,7 @@ dependencies = [
  "lib_config",
  "middleware",
  "rand",
+ "rdkafka",
  "serde 1.0.217",
  "serde_json",
  "tokio",
