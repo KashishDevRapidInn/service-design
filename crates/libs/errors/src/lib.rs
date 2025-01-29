@@ -36,6 +36,9 @@ pub enum DbError {
     #[error("Updation Error: {0}")]
     UpdationError(String),
 
+    #[error("Not Found: {0}")]
+    NotFound(String),
+
     #[error("Other Database Error: {0}")]
     Other(String),
 }
@@ -73,6 +76,9 @@ impl ResponseError for CustomError {
                 }
                 DbError::UpdationError(_) => {
                     HttpResponse::InternalServerError().body(self.to_string())
+                }
+                DbError::NotFound(_) => {
+                    HttpResponse::BadRequest().body(self.to_string()) 
                 }
                 DbError::Other(_) => HttpResponse::InternalServerError().body(self.to_string()),
             },

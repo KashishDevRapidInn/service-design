@@ -11,7 +11,7 @@ use tracing::instrument;
 
 #[derive(Deserialize, Insertable, Debug)]
 #[diesel(table_name = crate::schema::users)]
-struct ReceivedUser {
+pub struct ReceivedUser {
     pub id: uuid::Uuid,
     pub username: String,
     pub email: String,
