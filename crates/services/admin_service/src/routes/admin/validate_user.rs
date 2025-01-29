@@ -1,3 +1,4 @@
+use anyhow::Context;
 use lib_config::db::db::PgPool;
 use errors::{AuthError, CustomError, DbError};
 use helpers::validations::validations::LoginUserBody;
@@ -17,7 +18,7 @@ async fn get_stored_credentials(
     let mut conn = pool
         .get()
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
+        .context("Failed to get connection from pool")?;
 
     let row: Result<Option<Vec<(String, Uuid)>>, diesel::result::Error> = admins
         .filter(email.eq(user_email))
@@ -73,7 +74,7 @@ pub async fn validate_credentials(
         verify_password(&stored_password_hash, entered_pasword)
     })
     .await
-    .map_err(|_| CustomError::HashingError("Failed to hash inside spawn".to_string()))?;
+    .context("Failed to hash inside spawn")?;
     if is_valid {
         return Ok(user_id);
     } else {

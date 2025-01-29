@@ -1,4 +1,5 @@
 use actix_web::{web, HttpResponse};
+use anyhow::Context;
 use diesel::{ExpressionMethods, QueryDsl, SelectableHelper};
 use diesel::prelude::OptionalExtension;
 use diesel_async::RunQueryDsl;
@@ -23,11 +24,7 @@ pub async fn get_user(
 
     let mut conn = pool.get()
         .await
-        .map_err(|_| {
-            DbError::ConnectionError(
-                "Failed to get connection from pool".to_string()
-            )
-        })?;
+        .context("Failed to get connection from pool")?;
 
     let res = users::table
         .select(User::as_select())

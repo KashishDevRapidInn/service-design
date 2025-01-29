@@ -1035,6 +1035,7 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "anyhow",
+ "diesel",
  "thiserror 1.0.69",
 ]
 
@@ -3503,6 +3504,7 @@ dependencies = [
  "actix-session",
  "actix-web",
  "actix-web-lab",
+ "anyhow",
  "argon2",
  "chrono",
  "config",
