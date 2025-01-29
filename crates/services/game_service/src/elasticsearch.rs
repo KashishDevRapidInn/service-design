@@ -12,7 +12,9 @@ pub struct ElasticsearchGame {
     pub title: Option<String>,
     pub description: Option<String>,
     pub genre: Option<String>,
-    pub rating: Option<i32>
+    // pub rating: Option<Vec<i32>>,
+    pub average_rating: Option<f32>,
+    pub rating_count: Option<i32>
 }
 
 impl ElasticsearchGame {
@@ -23,7 +25,9 @@ impl ElasticsearchGame {
             title: game.title.clone(),
             description: game.description.clone(),
             genre: game.genre.clone(),
-            rating:None
+            // rating:None,
+            average_rating: None,
+            rating_count: None
         }
     }
 
@@ -36,7 +40,8 @@ impl ElasticsearchGame {
                 "title": game.title,
                 "description": game.description,
                 "genre": game.genre,
-                "rating": game.rating
+                "average_rating": None::<f32>,
+                "rating_count": None::<i32>
             }))
             .send()
             .await?;
@@ -49,7 +54,7 @@ impl ElasticsearchGame {
 
         Ok(())
     }
-    pub async fn update_game(elastic_client: &Elasticsearch, game: &ElasticsearchGame, rating: Option<i32>) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn update_game(elastic_client: &Elasticsearch, game: &ElasticsearchGame, avg_rating: Option<f32>, count: Option<i32>) -> Result<(), Box<dyn std::error::Error>> {
         let response = elastic_client
             .update(UpdateParts::IndexId("rate", &game.slug))
             .body(json!({
@@ -58,7 +63,8 @@ impl ElasticsearchGame {
                     "title": game.title,
                     "description": game.description,
                     "genre": game.genre,
-                    "rating": rating
+                    "average_rating": avg_rating,
+                    "rating_count":count
                 }
             }))
             .send()

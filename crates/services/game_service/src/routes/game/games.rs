@@ -52,7 +52,6 @@ pub async fn rate(
             "Invalid user ID".to_string(),
         ))
     })?;
-    // Create a new RateGame instance
     let new_rate_game = RateGame {
         id: uuid::Uuid::new_v4(),
         game_slug: slug.clone(),
@@ -69,8 +68,33 @@ pub async fn rate(
         .map_err(|err| CustomError::DatabaseError(DbError::InsertionError(err.to_string())))?;
 
     let new_game= get_game_by_slug(&slug, pool_ref).await.map_err(|err|CustomError::DatabaseError(DbError::Other(err.to_string())))?;
-        let es_game = ElasticsearchGame::new(&new_game);
-        ElasticsearchGame::update_game(&elastic_client, &es_game, Some(game_rating)).await.unwrap();
+    let es_game = ElasticsearchGame::new(&new_game);
+    let current_game = elastic_client
+        .get(elasticsearch::GetParts::IndexId("rate", &es_game.slug))
+        .send()
+        .await
+        .map_err(|err| CustomError::DatabaseError(DbError::Other(err.to_string())))?;
+
+        let json_response = current_game.json::<serde_json::Value>().await.ok();
+        tracing::info!("Elasticsearch response: {:?}", json_response);
+        
+        let (current_avg_rating, current_rating_count) = if let Some(hit) = json_response {
+            let avg_rating = hit.get("average_rating")
+                                .and_then(|r| r.as_f64())
+                                .unwrap_or(0.0) as f32;
+            let rating_count = hit.get("rating_count")
+                                  .and_then(|r| r.as_i64())
+                                  .unwrap_or(0) as i32;
+            tracing::info!("Found rating: avg_rating = {}, rating_count = {}", avg_rating, rating_count);
+            (avg_rating, rating_count)
+        } else {
+            tracing::error!("No data found in the Elasticsearch response.");
+            (0.0, 0)
+        };
+    let new_rating_count = current_rating_count + 1;
+    let new_average_rating = ((current_avg_rating * current_rating_count as f32) + game_rating as f32) / new_rating_count as f32;
+    
+    ElasticsearchGame::update_game(&elastic_client, &es_game, Some(new_average_rating), Some(new_rating_count)).await.unwrap();
 
     Ok(HttpResponse::Ok().json("Rating successfully added."))
 }

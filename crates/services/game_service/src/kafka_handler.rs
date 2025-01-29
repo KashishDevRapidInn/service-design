@@ -106,7 +106,7 @@ pub async fn process_kafka_game_message(
                                         is_admin: full_game.is_admin,
                                     };
                                     let es_game = ElasticsearchGame::new(&es_game);
-                                    ElasticsearchGame::update_game(&value, &es_game, None).await.unwrap();
+                                    ElasticsearchGame::update_game(&value, &es_game, None::<f32>, None::<i32>).await.unwrap();
                                 }
                                 KafkaGameMessage::Delete(slug) => {
                                     let mut conn = pool.get().await.unwrap();
