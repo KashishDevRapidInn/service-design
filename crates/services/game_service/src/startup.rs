@@ -1,14 +1,6 @@
-use flume::Sender;
-use kafka::{channel::KafkaMessage, setup::{setup_kafka_receiver, setup_kafka_sender}};
+use kafka::{channel::KafkaMessage, setup::{setup_kafka_sender, setup_kafka_receiver}};
 use lib_config::{config::configuration::Settings, db::db::PgPool};
-// use crate::middleware::jwt_auth_middleware;
-use crate::routes::{
-    health_check::{health_check, set_session, get_session},
-    admin::crud::{register_admin,login_admin,logout_admin},
-    games::games::{create_game, get_game, update_game, delete_game}
-};
-
-use crate::kafka_handler::process_kafka_message;
+use crate::routes::health_check::health_check;
 use actix_session::storage::RedisSessionStore;
 use actix_session::SessionMiddleware;
 use actix_web::cookie::Key;
@@ -17,8 +9,28 @@ use actix_web_lab::middleware::from_fn;
 use middleware::jwt::jwt_auth_middleware;
 use std::net::TcpListener;
 use tracing_actix_web::TracingLogger;
-use lib_config::session::redis::RedisService;
 
+use lib_config::session::redis::RedisService;
+use crate::kafka_handler::process_kafka_game_message;
+use flume::Sender;
+use crate::routes::game::games::rate;
+use elasticsearch::{Elasticsearch};
+use elasticsearch::http::transport::Transport;
+use std::error::Error;
+use reqwest::ClientBuilder;
+
+/******************************************/
+// Initializing Elastic client
+/******************************************/
+pub fn init_elasticsearch() -> Result<Elasticsearch, Box<dyn Error>> {
+    let client = ClientBuilder::new()
+    .danger_accept_invalid_certs(true)
+    .build()?;
+    let transport = Transport::single_node("http://192.168.237.133:9200")?;
+
+    let es_client = Elasticsearch::new(transport);
+    Ok(es_client)
+}
 /******************************************/
 // Initializing Redis connection
 /******************************************/
@@ -35,7 +47,7 @@ pub fn generate_secret_key() -> Key {
     Key::generate()
 }
 /**************************************************************/
-// Application State to reuse the same code in main and tests
+// Application State re reuse the same code in main and tests
 /***************************************************************/
 pub struct Application {
     port: u16,
@@ -44,25 +56,30 @@ pub struct Application {
 
 impl Application {
     pub async fn build(pool: PgPool, config: &Settings) -> Result<Self, std::io::Error> {
-        let listener = if config.service.admin_service_port== 0 {
+        let listener = if config.service.game_service_port == 0 {
             TcpListener::bind("127.0.0.1:0")?
         } else {
-            let address = format!("127.0.0.1:{}", config.service.admin_service_port);
+            let address = format!("127.0.0.1:{}", config.service.game_service_port);
             TcpListener::bind(&address)?
         };
 
         let actual_port = listener.local_addr()?.port();
 
-        let consumer_group = "admin_group".to_string();
-        let tx = setup_kafka_sender(&config.kafka.admin_url, &config.kafka.admin_topics).await;
-        let rx = setup_kafka_receiver(&config.kafka.admin_url, &config.kafka.admin_subscribe_topics, &consumer_group).await;
+        let tx = setup_kafka_sender(&config.kafka.game_url, &config.kafka.game_topics).await;
+        let rx = setup_kafka_receiver(&config.kafka.game_url, &config.kafka.game_subscribe_topics, &config.kafka.game_consumer_group).await;
+
+        let elastic_client = init_elasticsearch().map_err(|e| {
+            eprintln!("Failed to create elastic search client: {:?}", e);
+            std::io::Error::new(std::io::ErrorKind::Other, "Redis connection failed")
+        });
 
         let pool_clone = pool.clone();
         tokio::spawn(async move {
-            process_kafka_message(rx, pool_clone).await;
+            process_kafka_game_message(rx, pool_clone, elastic_client.unwrap()).await;
         });
 
         let server = run_server(listener, pool.clone(), config.redis.uri.clone(), tx).await?;
+
         Ok(Self {
             port: actual_port,
             server,
@@ -87,7 +104,9 @@ pub async fn run_server(
 ) -> Result<Server, std::io::Error> {
     let redis_store = init_redis(redis_uri.clone()).await?;
     let secret_key = generate_secret_key();
+
     let redis_service = RedisService::new(redis_uri).await;
+
     let server = HttpServer::new(move || {
         App::new()
             .wrap(TracingLogger::default())
@@ -95,28 +114,14 @@ pub async fn run_server(
                 redis_store.clone(),
                 secret_key.clone(),
             ))
+            .app_data(web::Data::new(redis_service.clone()))
             .app_data(web::Data::new(pool.clone()))
             .app_data(web::Data::new(kafka_sender.clone()))
-            .app_data(web::Data::new(redis_service.clone()))
             .route("/health_check", web::get().to(health_check))
-            .route("/set_session", web::get().to(set_session))
-            .route("/get_session", web::get().to(get_session))
             .service(
                 web::scope("/api/v1")
-                .service(
-                    web::scope("/admins")
-                                .route("/register", web::post().to(register_admin))
-                                .route("/login", web::post().to(login_admin))
-                                .route("/logout", web::post().to(logout_admin))
-                )
-                .service(
-                    web::scope("/auth/games")
                     .wrap(from_fn(jwt_auth_middleware))
-                    .route("/new", web::post().to(create_game))
-                    .route("/get/{slug}", web::get().to(get_game))
-                    .route("/update/{slug}", web::patch().to(update_game))
-                    .route("/remove/{slug}", web::delete().to(delete_game))
-                )
+                    .route("/rate", web::post().to(rate))
             )       
     })
     .listen(listener)?

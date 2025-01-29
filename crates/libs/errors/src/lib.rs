@@ -16,7 +16,7 @@ pub enum CustomError {
     ValidationError(String),
 
     #[error("Authentication Error: {0}")]
-    AuthenticationError(#[from] AuthError),
+    AuthenticationError(#[from] AuthError) ,
 
     #[error("Unexpected Error")]
     UnexpectedError(#[from] anyhow::Error)

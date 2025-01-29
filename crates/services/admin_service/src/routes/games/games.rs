@@ -159,6 +159,9 @@ pub async fn delete_game(
             "No game found with the given slug".to_string(),
         )));
     }
-
+    let message = KafkaGameMessage::Delete(&game_slug);
+    let _ = push_to_broker(&kafka_producer, &message)
+        .await
+        .context("Failed to push delete game data to broker")?;
     Ok(HttpResponse::Ok().json("Game deleted successfully"))
 }
