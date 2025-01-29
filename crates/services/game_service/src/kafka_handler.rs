@@ -93,7 +93,7 @@ pub async fn process_kafka_game_message(
                                 KafkaGameMessage::Update { slug, changes } => {
                                     let mut conn = pool.get().await.unwrap();
                                     update_game_in_db(slug.clone(), changes.clone(), &mut conn).await;
-                                    let full_game = get_game_by_slug(&slug.clone(), pool).await.unwrap(); 
+                                    let full_game = get_game_by_slug(&slug.clone(), &pool).await.unwrap(); 
 
                                     let es_game = ReceivedGame {
                                         slug: full_game.slug, 
@@ -103,10 +103,10 @@ pub async fn process_kafka_game_message(
                                         genre: changes.genre.clone(),
                                         created_at: full_game.created_at,
                                         created_by_uid: full_game.created_by_uid,
-                                        is_admin: full_game.is_admin
+                                        is_admin: full_game.is_admin,
                                     };
                                     let es_game = ElasticsearchGame::new(&es_game);
-                                    ElasticsearchGame::update_game(&value, &es_game).await.unwrap();
+                                    ElasticsearchGame::update_game(&value, &es_game, None).await.unwrap();
                                 }
                                 KafkaGameMessage::Delete(slug) => {
                                     let mut conn = pool.get().await.unwrap();

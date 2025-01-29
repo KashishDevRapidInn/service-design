@@ -71,14 +71,15 @@ impl Application {
         let elastic_client = init_elasticsearch().map_err(|e| {
             eprintln!("Failed to create elastic search client: {:?}", e);
             std::io::Error::new(std::io::ErrorKind::Other, "Redis connection failed")
-        });
+        })?;
 
         let pool_clone = pool.clone();
+        let es_clone= elastic_client.clone();
         tokio::spawn(async move {
-            process_kafka_game_message(rx, pool_clone, elastic_client.unwrap()).await;
+            process_kafka_game_message(rx, pool_clone, es_clone).await;
         });
 
-        let server = run_server(listener, pool.clone(), config.redis.uri.clone(), tx).await?;
+        let server = run_server(listener, pool.clone(), config.redis.uri.clone(), tx, elastic_client).await?;
 
         Ok(Self {
             port: actual_port,
@@ -100,7 +101,8 @@ pub async fn run_server(
     listener: TcpListener,
     pool: PgPool,
     redis_uri: String,
-    kafka_sender: Sender<KafkaMessage<String>>
+    kafka_sender: Sender<KafkaMessage<String>>,
+    es_client: Elasticsearch
 ) -> Result<Server, std::io::Error> {
     let redis_store = init_redis(redis_uri.clone()).await?;
     let secret_key = generate_secret_key();
@@ -117,6 +119,7 @@ pub async fn run_server(
             .app_data(web::Data::new(redis_service.clone()))
             .app_data(web::Data::new(pool.clone()))
             .app_data(web::Data::new(kafka_sender.clone()))
+            .app_data(web::Data::new(es_client.clone()))
             .route("/health_check", web::get().to(health_check))
             .service(
                 web::scope("/api/v1")

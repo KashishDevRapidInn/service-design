@@ -13,6 +13,8 @@ use lib_config::session::redis::RedisService;
 use serde_json::json;
 use tracing::instrument;
 use chrono::Utc;
+use crate::elasticsearch::ElasticsearchGame;
+use elasticsearch::Elasticsearch;
 
 /******************************************/
 // Rate game Route
@@ -21,13 +23,16 @@ use chrono::Utc;
  * @route   POST /rate
  * @access  Protected
  */
-#[instrument(name = "Rate game", skip(pool, rate_game_req, req, redis_service))]
+#[instrument(name = "Rate game", skip(pool, rate_game_req, req, redis_service, elastic_client))]
 pub async fn rate(
     pool: web::Data<PgPool>,
     rate_game_req: web::Json<RateGameRequest>, 
     req: web::ReqData<Claims>,
-    redis_service: web::Data<RedisService>
+    redis_service: web::Data<RedisService>,
+    elastic_client: web::Data<Elasticsearch>,
 ) -> Result<HttpResponse, CustomError>{
+    let pool_clone= pool.clone();
+    let pool_ref= pool_clone.as_ref();
     let mut conn = pool
         .get()
         .await
@@ -50,9 +55,9 @@ pub async fn rate(
     // Create a new RateGame instance
     let new_rate_game = RateGame {
         id: uuid::Uuid::new_v4(),
-        game_slug: slug,
+        game_slug: slug.clone(),
         user_id: id_user,
-        rating: game_rating,
+        rating: game_rating.clone(),
         review: game_review,
         created_at: Utc::now().naive_utc(),
     };
@@ -63,13 +68,16 @@ pub async fn rate(
         .await
         .map_err(|err| CustomError::DatabaseError(DbError::InsertionError(err.to_string())))?;
 
+    let new_game= get_game_by_slug(&slug, pool_ref).await.map_err(|err|CustomError::DatabaseError(DbError::Other(err.to_string())))?;
+        let es_game = ElasticsearchGame::new(&new_game);
+        ElasticsearchGame::update_game(&elastic_client, &es_game, Some(game_rating)).await.unwrap();
 
     Ok(HttpResponse::Ok().json("Rating successfully added."))
 }
 
 pub async fn get_game_by_slug(
     slug_game: &str,
-    pool: PgPool,
+    pool: &PgPool,
 ) -> Result<ReceivedGame, CustomError> {
    let mut conn = pool
    .get()

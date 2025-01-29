@@ -12,6 +12,7 @@ pub struct ElasticsearchGame {
     pub title: Option<String>,
     pub description: Option<String>,
     pub genre: Option<String>,
+    pub rating: Option<i32>
 }
 
 impl ElasticsearchGame {
@@ -22,6 +23,7 @@ impl ElasticsearchGame {
             title: game.title.clone(),
             description: game.description.clone(),
             genre: game.genre.clone(),
+            rating:None
         }
     }
 
@@ -34,6 +36,7 @@ impl ElasticsearchGame {
                 "title": game.title,
                 "description": game.description,
                 "genre": game.genre,
+                "rating": game.rating
             }))
             .send()
             .await?;
@@ -46,7 +49,7 @@ impl ElasticsearchGame {
 
         Ok(())
     }
-    pub async fn update_game(elastic_client: &Elasticsearch, game: &ElasticsearchGame) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn update_game(elastic_client: &Elasticsearch, game: &ElasticsearchGame, rating: Option<i32>) -> Result<(), Box<dyn std::error::Error>> {
         let response = elastic_client
             .update(UpdateParts::IndexId("rate", &game.slug))
             .body(json!({
@@ -55,6 +58,7 @@ impl ElasticsearchGame {
                     "title": game.title,
                     "description": game.description,
                     "genre": game.genre,
+                    "rating": rating
                 }
             }))
             .send()
