@@ -12,8 +12,9 @@ use diesel::prelude::*;
 use uuid::Uuid;
 use elasticsearch::Elasticsearch;
 use crate::elasticsearch::ElasticsearchGame;
+use crate::routes::game::games::get_game_by_slug;
 
-#[derive(Deserialize, Insertable, Debug, Serialize, Clone, Queryable, AsChangeset)]
+#[derive(Deserialize, Insertable, Debug, Serialize, Clone, Queryable, AsChangeset, Selectable)]
 #[diesel(table_name = crate::schema::games)]
 pub struct ReceivedGame {
     pub slug: String,
@@ -36,7 +37,7 @@ pub enum KafkaGameMessage{
     Delete(String),
 }
 
-#[derive(Deserialize, Debug, Serialize)]
+#[derive(Deserialize, Debug, Serialize, Clone)]
 pub struct UpdateGameBody {
     pub title: Option<String>,
     pub description: Option<String>,
@@ -91,16 +92,27 @@ pub async fn process_kafka_game_message(
                                 }
                                 KafkaGameMessage::Update { slug, changes } => {
                                     let mut conn = pool.get().await.unwrap();
-                                    update_game_in_db(slug, changes, &mut conn).await;
+                                    update_game_in_db(slug.clone(), changes.clone(), &mut conn).await;
+                                    let full_game = get_game_by_slug(&slug.clone(), pool).await.unwrap(); 
 
-                                    // let es_game = ElasticsearchGame::new(&slug);
-                                    // ElasticsearchGame::index_game(&elastic_client, &es_game).await.unwrap();
+                                    let es_game = ReceivedGame {
+                                        slug: full_game.slug, 
+                                        name: full_game.name, 
+                                        title: changes.title.clone(), 
+                                        description: changes.description.clone(), 
+                                        genre: changes.genre.clone(),
+                                        created_at: full_game.created_at,
+                                        created_by_uid: full_game.created_by_uid,
+                                        is_admin: full_game.is_admin
+                                    };
+                                    let es_game = ElasticsearchGame::new(&es_game);
+                                    ElasticsearchGame::update_game(&value, &es_game).await.unwrap();
                                 }
                                 KafkaGameMessage::Delete(slug) => {
                                     let mut conn = pool.get().await.unwrap();
-                                    delete_game_from_db(slug, &mut conn).await;
+                                    delete_game_from_db(slug.clone(), &mut conn).await;
 
-                                    // ElasticsearchGame::delete_game(&elastic_client, &slug).await.unwrap();
+                                    ElasticsearchGame::delete_game(&value, &slug).await.unwrap();
                                 }
                             }
                         }
@@ -238,3 +250,4 @@ async fn add_user_to_db(user: ReceivedUser, conn: &mut AsyncPgConnection) {
         Err(e) => tracing::error!("Failed to add user: {:?}", e),
     };
 }
+

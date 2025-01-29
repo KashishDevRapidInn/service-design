@@ -1,6 +1,7 @@
 use helpers::auth_jwt::auth::Claims;
 use lib_config::db::db::PgPool;
 use errors::{AuthError, CustomError, DbError};
+use crate::kafka_handler::ReceivedGame;
 use crate::schema::users::dsl::*;
 use crate::schema::rate_game::dsl::*;
 use crate::routes::game::model::{Game, RateGame, RateGameRequest};
@@ -64,4 +65,23 @@ pub async fn rate(
 
 
     Ok(HttpResponse::Ok().json("Rating successfully added."))
+}
+
+pub async fn get_game_by_slug(
+    slug_game: &str,
+    pool: PgPool,
+) -> Result<ReceivedGame, CustomError> {
+   let mut conn = pool
+   .get()
+   .await
+   .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
+
+    use crate::schema::games;
+    use crate::schema::games::dsl::*;
+    let response= games.filter(games::slug.eq(slug_game))
+    .select((ReceivedGame::as_select()))
+    .get_result::<ReceivedGame>(&mut conn)
+    .await
+    .map_err(|err| CustomError::DatabaseError(DbError::InsertionError(err.to_string())))?;
+    Ok((response))
 }
