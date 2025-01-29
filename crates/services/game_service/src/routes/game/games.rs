@@ -76,17 +76,23 @@ pub async fn rate(
         .map_err(|err| CustomError::DatabaseError(DbError::Other(err.to_string())))?;
 
         let json_response = current_game.json::<serde_json::Value>().await.ok();
-        tracing::info!("Elasticsearch response: {:?}", json_response);
         
         let (current_avg_rating, current_rating_count) = if let Some(hit) = json_response {
-            let avg_rating = hit.get("average_rating")
-                                .and_then(|r| r.as_f64())
-                                .unwrap_or(0.0) as f32;
-            let rating_count = hit.get("rating_count")
-                                  .and_then(|r| r.as_i64())
-                                  .unwrap_or(0) as i32;
-            tracing::info!("Found rating: avg_rating = {}, rating_count = {}", avg_rating, rating_count);
-            (avg_rating, rating_count)
+            let source = hit.get("_source");
+            if let Some(res) = source {
+                tracing::info!("Elasticsearch response source: {}", res);
+                let avg_rating = res.get("average_rating")
+                                    .and_then(|r| r.as_f64())
+                                    .unwrap_or(0.0) as f32;
+                let rating_count = res.get("rating_count")
+                                      .and_then(|r| r.as_i64())
+                                      .unwrap_or(0) as i32;
+                tracing::info!("Found rating: avg_rating = {}, rating_count = {}", avg_rating, rating_count);
+                (avg_rating, rating_count)
+            } else {
+                tracing::error!("NO source in elasticsearch response");
+                (0.0, 0)
+            }
         } else {
             tracing::error!("No data found in the Elasticsearch response.");
             (0.0, 0)

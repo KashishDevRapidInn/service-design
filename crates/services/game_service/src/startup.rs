@@ -26,7 +26,7 @@ pub fn init_elasticsearch() -> Result<Elasticsearch, Box<dyn Error>> {
     // let client = ClientBuilder::new()
     // .danger_accept_invalid_certs(true)
     // .build()?;
-    let transport = Transport::single_node("http://192.168.237.133:9200")?;
+    let transport = Transport::single_node("http://127.0.0.1:9200")?;
 
     let es_client = Elasticsearch::new(transport);
     Ok(es_client)
