@@ -1,3 +1,4 @@
+use anyhow::Context;
 use helpers::auth_jwt::auth::create_jwt;
 use lib_config::db::db::PgPool;
 use errors::{AuthError, CustomError, DbError};
@@ -38,13 +39,13 @@ pub async fn register_admin(
     let mut conn = pool
         .get()
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
+        .context("Failed to fetch connection from pool")?;
     let argon2 = Argon2::default();
 
     let salt = generate_random_salt();
     let password_hashed = argon2
         .hash_password(admin_password.as_bytes(), &salt)
-        .map_err(|err| CustomError::HashingError(err.to_string()))?;
+        .context("Failed to hash password")?;
 
     let result = diesel::insert_into(admins)
         .values((

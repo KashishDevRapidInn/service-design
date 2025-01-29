@@ -19,6 +19,7 @@ use actix_web::cookie::{Cookie, CookieJar};
 use actix_web::cookie::time::Duration;
 use lib_config::session::redis::RedisService;
 use actix_web::HttpMessage; //for .extensions()
+use anyhow::Context;
 
 use super::model::{RegisterUserMessage, User};
 
@@ -47,13 +48,13 @@ pub async fn register_user(
     let mut conn = pool
         .get()
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
+        .context("Failed to fetch connection from pool")?;
     let argon2 = Argon2::default();
 
     let salt = generate_random_salt();
     let password_hashed = argon2
         .hash_password(user_password.as_bytes(), &salt)
-        .map_err(|err| CustomError::HashingError(err.to_string()))?;
+        .context("Failed to hash password")?;
 
     let result: RegisterUserMessage = diesel::insert_into(users)
         .values((
