@@ -11,12 +11,19 @@ pub struct Claims {
     pub iat: usize,
     pub nfb: usize,
     pub sid: String,
+    pub role: Role
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub enum Role {
+    User,
+    Admin
 }
 
 /******************************************/
 // Creating JWT token
 /******************************************/
-pub fn create_jwt(user_id: &str) -> Result<(String, String), String> {
+pub fn create_jwt(user_id: &str, role: Role) -> Result<(String, String), String> {
     let config = configuration::Settings::new().expect("Failed to load configurations");
     let expiration_time = (Utc::now() + Duration::hours(1)).timestamp() as usize;
     let issued_at = Utc::now().timestamp() as usize;
@@ -29,6 +36,7 @@ pub fn create_jwt(user_id: &str) -> Result<(String, String), String> {
         iat: issued_at,
         nfb: not_before,
         sid: sid.clone(),
+        role
     };
 
     // let secret = env::var("JWT_SECRET").expect("Jwt secret not found");

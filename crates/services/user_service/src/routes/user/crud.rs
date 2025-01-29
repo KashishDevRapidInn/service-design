@@ -1,4 +1,4 @@
-use helpers::auth_jwt::auth::{create_jwt, Claims};
+use helpers::auth_jwt::auth::{create_jwt, Claims, Role};
 use flume::Sender;
 use kafka::channel::{push_to_broker, KafkaMessage};
 use lib_config::db::db::PgPool;
@@ -94,7 +94,7 @@ pub async fn login_user(
     match user_id {
         Ok(id_user) => {
 
-            let (token, sid) = create_jwt(&id_user.to_string()).map_err(|err| {
+            let (token, sid) = create_jwt(&id_user.to_string(), Role::User).map_err(|err| {
                 CustomError::AuthenticationError(AuthError::JwtAuthenticationError(err.to_string()))
             })?;
            

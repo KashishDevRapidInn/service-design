@@ -1,5 +1,5 @@
 use anyhow::Context;
-use helpers::auth_jwt::auth::create_jwt;
+use helpers::auth_jwt::auth::{create_jwt, Role};
 use lib_config::db::db::PgPool;
 use errors::{AuthError, CustomError, DbError};
 use crate::schema::admins::dsl::*;
@@ -83,7 +83,7 @@ pub async fn login_admin(
 
     match admin_id {
         Ok(id_admin) => {
-            let (token, sid) = create_jwt(&id_admin.to_string()).map_err(|err| {
+            let (token, sid) = create_jwt(&id_admin.to_string(), Role::Admin).map_err(|err| {
                 CustomError::AuthenticationError(AuthError::JwtAuthenticationError(err.to_string()))
             })?;
             let _= redis_service.set_session(&sid, &id_admin.to_string()).await;
