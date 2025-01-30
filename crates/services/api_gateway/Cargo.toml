@@ -22,3 +22,5 @@ uuid = {version= "1.10.0", features=["v4", "serde"]}
 serde_json = "1.0.128"
 tracing = { version = "0.1.40", features = ["log"] }
 cookie = "0.15"
+anyhow = "1.0.95"
+bytes = "1.9.0"
