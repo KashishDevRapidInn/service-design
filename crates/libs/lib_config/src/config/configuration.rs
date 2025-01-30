@@ -27,6 +27,14 @@ pub struct ServiceSettings {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct DomainSettings {
+    pub user_service_domain: String,
+    pub admin_service_domain: String,
+    pub game_service_domain: String,
+    pub gateway_service_domain: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct KafkaSettings {
     pub user_url: String,
     pub admin_url: String,
@@ -36,6 +44,8 @@ pub struct KafkaSettings {
     pub game_topics: Vec<String>,
     pub user_consumer_group: String,
     pub admin_subscribe_topics: Vec<String>,
+    pub game_subscribe_topics: Vec<String>,
+    pub game_consumer_group: String,
     pub user_subscribe_topics: Vec<String>,
 }
 
@@ -46,6 +56,7 @@ pub struct Settings {
     pub redis: RedisSettings,
     pub jwt: JwtSettings,
     pub kafka: KafkaSettings,
+    pub domain: DomainSettings,
 }
 
 // impl Settings {

@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 
 lib_config = { path = "../../libs/lib_config" }
+errors = { path = "../../libs/errors" }
 chrono = { version= "0.4.38", features = ["serde"]}
 serde = { version = "1.0.210", features = ["derive"] }
 jsonwebtoken = "9.3.0"

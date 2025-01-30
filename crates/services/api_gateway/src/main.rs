@@ -4,8 +4,16 @@ use reqwest::Client;
 use std::sync::Arc;
 use lib_config::config::configuration;
 use utils::telemetry::{get_subscriber, init_subscriber};
-use serde_json::Value;
+use serde_json::{Value, to_string_pretty};
 use reqwest::{header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE}};
+use serde::{Serialize, Deserialize};
+use actix_web::http::StatusCode;
+
+#[derive(Serialize, Deserialize)]
+struct ApiResponse {
+    status: String,
+    message: Option<String>,
+}
 
 use lib_config::session::redis::RedisService;
 #[actix_web::main]
@@ -24,7 +32,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(redis_service.clone()))
             .route("/{service}/{endpoint:.*}", web::to(forward_requests))
     })
-    .bind(format!("127.0.0.1:{}", config.service.gateway_service_port))?
+    .bind(format!("{}:{}", config.domain.gateway_service_domain, config.service.gateway_service_port))?
     .run()
     .await
 }
@@ -39,11 +47,18 @@ async fn forward_requests(
     let config = configuration::Settings::new().expect("Failed to load configurations");
 
     let base_url = match service.as_str() {
-        "user" => format!("http://127.0.0.1:{}/{}", config.service.user_service_port, endpoint),
-        "admin" => format!("http://127.0.0.1:{}/{}", config.service.admin_service_port, endpoint),
-        "game" => format!("http://127.0.0.1:{}/{}", config.service.game_service_port, endpoint),
+        "user" => format!("http://{}:{}/{}", config.domain.user_service_domain, config.service.user_service_port, endpoint),
+        "admin" => format!("http://{}:{}/{}", config.domain.admin_service_domain, config.service.admin_service_port, endpoint),
+        "game" => format!("http://{}:{}/{}", config.domain.game_service_domain, config.service.game_service_port, endpoint),
         _ => return HttpResponse::BadRequest().body("Invalid service name"),
     };
+    let query_string = req.query_string();
+    let mut full_url = base_url;
+
+    if !query_string.is_empty() {
+        full_url.push_str("?");
+        full_url.push_str(query_string);
+    }
 
     let auth_header = req.headers().get(AUTHORIZATION).cloned();
     let mut headers = HeaderMap::new();
@@ -56,7 +71,7 @@ async fn forward_requests(
     let response = match method {
         actix_web::http::Method::GET => {
             client
-                .get(&base_url)
+                .get(&full_url)
                 .headers(headers)
                 .send()
                 .await
@@ -69,7 +84,7 @@ async fn forward_requests(
                 None => return HttpResponse::BadRequest().body("Expected body for POST request"),
             };
             client
-                .post(&base_url)
+                .post(&full_url)
                 .headers(headers)
                 .body(json_body)
                 .send()
@@ -78,7 +93,7 @@ async fn forward_requests(
         },
         actix_web::http::Method::DELETE => {
             client
-                .delete(&base_url)
+                .delete(&full_url)
                 .headers(headers)
                 .send()
                 .await
@@ -91,7 +106,7 @@ async fn forward_requests(
                 None => return HttpResponse::BadRequest().body("Expected body for PATCH request"),
             };
             client
-                .patch(&base_url)
+                .patch(&full_url)
                 .headers(headers)
                 .body(json_body)
                 .send()
@@ -101,6 +116,22 @@ async fn forward_requests(
         _ => return HttpResponse::MethodNotAllowed().body("Method not allowed"),
     };
 
-    let body = response.text().await.expect("Failed to read response");
-    HttpResponse::Ok().body(body)
+    let status_code = response.status().as_u16();
+    let status = StatusCode::from_u16(status_code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR); 
+
+    let response_body = response.text().await.expect("Failed to read response");
+    let response_json: Value = serde_json::from_str(&response_body).unwrap_or(Value::Null);
+    let pretty_response = to_string_pretty(&response_json).unwrap_or_else(|_| response_body);
+
+    let api_response = ApiResponse {
+        status: if status_code == 200 {
+            "success".into()
+        } else {
+            "error".into()
+        },
+        message: Some(pretty_response.clone())
+    };
+
+    HttpResponse::build(status)
+        .json(api_response) 
 }

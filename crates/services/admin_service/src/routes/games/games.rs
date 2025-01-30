@@ -15,6 +15,14 @@ use lib_config::session::redis::RedisService;
 
 use super::models::KafkaGameMessage;
 
+/******************************************/
+// Create New Game Route
+/******************************************/
+/**
+ * @route   POST /api/v1/auth/games/new
+ * @access  Private
+ */
+#[instrument(name = "Create a new game", skip(pool, kafka_producer, admin))]
 pub async fn create_game(
     pool: web::Data<PgPool>,
     req_game: web::Json<CreateGameBody>, 
@@ -33,7 +41,9 @@ pub async fn create_game(
         .await
         .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
     let admin_id= admin.into_inner().sid;
-    let admin_id= Uuid::parse_str(&admin_id).unwrap();
+    let admin_id= Uuid::parse_str(&admin_id).map_err(|err| {
+        CustomError::ValidationError(format!("Invalid admin ID format: {}", err))
+    })?;
     let new_game = Game {
         slug: game_slug,
         name: game_data.name,
@@ -64,7 +74,14 @@ pub async fn create_game(
 
     Ok(HttpResponse::Created().json(new_game))
 }
-
+/******************************************/
+// Get Game Route
+/******************************************/
+/**
+ * @route   GET /api/v1/auth/games/get/{slug}
+ * @access  Private
+ */
+#[instrument(name = "Get game", skip(pool))]
 pub async fn get_game(
     pool: web::Data<PgPool>,
     game_slug: web::Path<String>
@@ -89,7 +106,14 @@ pub async fn get_game(
 
     Ok(HttpResponse::Ok().json(game))
 }
-
+/******************************************/
+// Update Game Route
+/******************************************/
+/**
+ * @route   PATCH /api/v1/auth/games/{slug}
+ * @access  Private
+ */
+#[instrument(name = "Update game", skip(pool, kafka_producer))]
 pub async fn update_game(
     pool: web::Data<PgPool>,
     game_slug: web::Path<String>,
@@ -135,7 +159,14 @@ pub async fn update_game(
 
     Ok(HttpResponse::Ok().json(game))
 }
-
+/******************************************/
+// Delete Game Route
+/******************************************/
+/**
+ * @route   POST /api/v1/auth/games/remove/{slug}
+ * @access  Private
+ */
+#[instrument(name = "Create a new game", skip(pool, kafka_producer))]
 pub async fn delete_game(
     game_slug: web::Path<String>,
     pool: web::Data<PgPool>,
@@ -159,6 +190,9 @@ pub async fn delete_game(
             "No game found with the given slug".to_string(),
         )));
     }
-
+    let message = KafkaGameMessage::Delete(&game_slug);
+    let _ = push_to_broker(&kafka_producer, &message)
+        .await
+        .context("Failed to push delete game data to broker")?;
     Ok(HttpResponse::Ok().json("Game deleted successfully"))
 }

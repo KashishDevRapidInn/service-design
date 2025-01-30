@@ -67,7 +67,7 @@ pub async fn validate_credentials(
 ) -> Result<Uuid, CustomError> {
     let (user_id, stored_password_hash) = get_stored_credentials(&req_login.email, pool)
         .await
-        .unwrap();
+        .map_err(|err| CustomError::ValidationError(err.to_string()))?;
 
     let entered_pasword = req_login.password.to_owned();
     let is_valid = spawn_blocking_with_tracing(move || {
