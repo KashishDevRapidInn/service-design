@@ -186,7 +186,7 @@ pub async fn get_game(
 
     if ret.len() == 0 {
         tracing::info!("No more games");
-        return Ok(HttpResponse::Ok().body("No more games"))
+        return Ok(HttpResponse::Ok().json("No more games"))
     }
 
     Ok(HttpResponse::Ok().json(ret))
