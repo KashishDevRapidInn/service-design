@@ -1,3 +1,4 @@
+use helpers::auth_jwt::auth::Role;
 use kafka::{channel::KafkaMessage, setup::{setup_kafka_receiver, setup_kafka_sender}};
 use lib_config::{config::configuration::Settings, db::db::PgPool};
 // use crate::middleware::jwt_auth_middleware;
@@ -7,7 +8,7 @@ use crate::{kafka_handler::process_kafka_message, routes::{
 }};
 use actix_web::{dev::Server, web, App, HttpServer};
 use actix_web_lab::middleware::from_fn;
-use middleware::jwt::jwt_auth_middleware;
+use middleware::jwt::{jwt_auth_middleware, RoleRestrictor};
 use std::net::TcpListener;
 use tracing_actix_web::TracingLogger;
 
@@ -89,7 +90,7 @@ pub async fn run_server(
                 )
                 .service(
                     web::scope("/user/protected")
-                    .wrap(from_fn(jwt_auth_middleware))
+                    .wrap(from_fn(jwt_auth_middleware::<UserRoleRestrictor>))
                     .route("/view_user", web::get().to(view_user))
                     .route("/logout", web::post().to(logout_user))
                 )
@@ -98,4 +99,12 @@ pub async fn run_server(
     .listen(listener)?
     .run();
     Ok(server)
+}
+
+struct UserRoleRestrictor();
+
+impl RoleRestrictor for UserRoleRestrictor {
+    fn role_allowed() -> helpers::auth_jwt::auth::Role {
+        Role::User
+    }
 }

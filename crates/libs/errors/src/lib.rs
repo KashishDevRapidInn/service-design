@@ -1,16 +1,12 @@
+use std::{error::Error, fmt::Debug};
+
 use actix_web::{HttpResponse, ResponseError};
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Error)]
 pub enum CustomError {
     #[error("Database Error: {0}")]
     DatabaseError(#[from] DbError),
-
-    #[error("Blocking Error: {0}")]
-    BlockingError(String),
-
-    #[error("Hashing Error: {0}")]
-    HashingError(String),
 
     #[error("Validation Error: {0}")]
     ValidationError(String),
@@ -57,13 +53,7 @@ pub enum AuthError {
 impl ResponseError for CustomError {
     fn error_response(&self) -> HttpResponse {
         match self {
-            CustomError::BlockingError(_) => {
-                HttpResponse::InternalServerError().body(self.to_string())
-            }
             CustomError::ValidationError(_) => HttpResponse::BadRequest().body(self.to_string()),
-            CustomError::HashingError(_) => {
-                HttpResponse::InternalServerError().body(self.to_string())
-            }
             CustomError::DatabaseError(err) => match err {
                 DbError::ConnectionError(_) => {
                     HttpResponse::InternalServerError().body(self.to_string())
@@ -96,4 +86,26 @@ impl ResponseError for CustomError {
             CustomError::UnexpectedError(err) => HttpResponse::InternalServerError().body(self.to_string())
         }
     }
+}
+
+impl Debug for CustomError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        error_chain(self, f)
+    }
+}
+
+fn error_chain(
+    source: &impl Error,
+    f: &mut std::fmt::Formatter
+) -> std::fmt::Result {
+    writeln!(f, "{}", source)?;
+
+    match source.source() {
+        Some(next) => {
+            write!(f, "Caused by: \n\t{:?}", next);
+        },
+        None => {}
+    };
+
+    Ok(())
 }

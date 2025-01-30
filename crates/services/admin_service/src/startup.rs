@@ -1,4 +1,5 @@
 use flume::Sender;
+use helpers::auth_jwt::auth::Role;
 use kafka::{channel::KafkaMessage, setup::{setup_kafka_receiver, setup_kafka_sender}};
 use lib_config::{config::configuration::Settings, db::db::PgPool};
 // use crate::middleware::jwt_auth_middleware;
@@ -9,7 +10,7 @@ use crate::routes::{
 use crate::kafka_handler::process_kafka_message;
 use actix_web::{dev::Server, web, App, HttpServer};
 use actix_web_lab::middleware::from_fn;
-use middleware::jwt::jwt_auth_middleware;
+use middleware::jwt::{jwt_auth_middleware, RoleRestrictor};
 use std::net::TcpListener;
 use tracing_actix_web::TracingLogger;
 use lib_config::session::redis::RedisService;
@@ -87,7 +88,7 @@ pub async fn run_server(
                 )
                 .service(
                     web::scope("/auth/games")
-                    .wrap(from_fn(jwt_auth_middleware))
+                    .wrap(from_fn(jwt_auth_middleware::<AdminRoleRestrictor>))
                     .route("/new", web::post().to(create_game))
                     .route("/get/{slug}", web::get().to(get_game))
                     .route("/update/{slug}", web::patch().to(update_game))
@@ -95,7 +96,7 @@ pub async fn run_server(
                 )
                 .service(
                     web::scope("/auth/users")
-                    .wrap(from_fn(jwt_auth_middleware))
+                    .wrap(from_fn(jwt_auth_middleware::<AdminRoleRestrictor>))
                     .route("/", web::get().to(get_users))
                     .route("/{user_id}", web::get().to(get_user_by_id))
                     .route("/{user_id}", web::delete().to(delete_user))
@@ -105,4 +106,12 @@ pub async fn run_server(
     .listen(listener)?
     .run();
     Ok(server)
+}
+
+struct AdminRoleRestrictor();
+
+impl RoleRestrictor for AdminRoleRestrictor {
+    fn role_allowed() -> helpers::auth_jwt::auth::Role {
+        Role::Admin
+    }
 }
