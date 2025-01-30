@@ -1,6 +1,6 @@
 use kafka::{channel::KafkaMessage, setup::{setup_kafka_sender, setup_kafka_receiver}};
 use lib_config::{config::configuration::Settings, db::db::PgPool};
-use crate::routes::health_check::health_check;
+use crate::routes::{game::games::get_game, health_check::health_check};
 use actix_session::storage::RedisSessionStore;
 use actix_session::SessionMiddleware;
 use actix_web::cookie::Key;
@@ -125,6 +125,7 @@ pub async fn run_server(
                 web::scope("/api/v1")
                     .wrap(from_fn(jwt_auth_middleware))
                     .route("/rate", web::post().to(rate))
+                    .route("/", web::get().to(get_game))
             )       
     })
     .listen(listener)?

@@ -14,7 +14,9 @@ use serde_json::json;
 use tracing::instrument;
 use chrono::Utc;
 use crate::elasticsearch::ElasticsearchGame;
-use elasticsearch::Elasticsearch;
+use elasticsearch::{Elasticsearch, SearchParts};
+
+use super::model::Paginate;
 
 /******************************************/
 // Rate game Route
@@ -23,12 +25,11 @@ use elasticsearch::Elasticsearch;
  * @route   POST /rate
  * @access  Protected
  */
-#[instrument(name = "Rate game", skip(pool, rate_game_req, req, redis_service, elastic_client))]
+#[instrument(name = "Rate game", skip(pool, rate_game_req, req, elastic_client))]
 pub async fn rate(
     pool: web::Data<PgPool>,
     rate_game_req: web::Json<RateGameRequest>, 
     req: web::ReqData<Claims>,
-    redis_service: web::Data<RedisService>,
     elastic_client: web::Data<Elasticsearch>,
 ) -> Result<HttpResponse, CustomError>{
     let pool_clone= pool.clone();
@@ -103,6 +104,81 @@ pub async fn rate(
     ElasticsearchGame::update_game(&elastic_client, &es_game, Some(new_average_rating), Some(new_rating_count)).await.unwrap();
 
     Ok(HttpResponse::Ok().json("Rating successfully added."))
+}
+
+#[instrument(name = "Get game list", skip_all)]
+pub async fn get_game(
+    paginate: web::Query<Paginate>,
+    elastic_client: web::Data<Elasticsearch>
+) -> Result<HttpResponse, CustomError> {
+    let paginate = paginate.into_inner();
+    let from = (paginate.page - 1) * paginate.limit;
+
+    let response = elastic_client
+        .search(SearchParts::Index(&vec![&String::from("rate")[..]]))
+        .body(json!({
+            "sort": [
+                {
+                    "average_rating": {
+                        "order": "desc"
+                    }
+                }
+            ],
+            "from": from,
+            "size": paginate.limit
+        }))
+        .send()
+        .await
+        .map_err(|err| CustomError::DatabaseError(DbError::Other(err.to_string())))?;
+
+    let response_json = response.json::<serde_json::Value>()
+        .await
+        .map_err(|err| CustomError::DatabaseError(DbError::Other(err.to_string())))?;
+
+    let hits = response_json.get("hits")
+        .ok_or(CustomError::DatabaseError(DbError::Other("Did not find outer hits".into())))?
+        .get("hits")
+        .ok_or(CustomError::DatabaseError(DbError::Other("Did not find inner hits".into())))?;
+
+    let ret = match hits {
+        serde_json::Value::Array(res_vec) => {
+            let temp: Vec<ElasticsearchGame> = res_vec.into_iter()
+                .map(|res| {
+                    let temp = res.get("_source")
+                        .ok_or(
+                            CustomError::DatabaseError(DbError::Other(
+                                    "Unexpected result structure: Did not find _source".into()
+                            )
+                        ));
+
+                    temp
+                })
+                .map(|source| {
+                    let temp = source.map(|doc| {
+                        let game: Result<ElasticsearchGame, serde_json::Error> = serde_json::from_value(doc.clone());
+                        game.map_err(|_| {
+                            CustomError::DatabaseError(DbError::Other("Failed to deserialize to ElasticsearchGame".into()))
+                        })
+                    })?;
+
+                    temp
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(temp)
+        }
+
+        _ => {
+            Err(CustomError::DatabaseError(DbError::Other("Unexpected data structure".into())))
+        }
+    }?;
+
+    if ret.len() == 0 {
+        tracing::info!("No more games");
+        return Ok(HttpResponse::Ok().body("No more games"))
+    }
+
+    Ok(HttpResponse::Ok().json(ret))
 }
 
 pub async fn get_game_by_slug(
