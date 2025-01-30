@@ -79,7 +79,11 @@ pub async fn run_server(
                     web::scope("/admins")
                                 .route("/register", web::post().to(register_admin))
                                 .route("/login", web::post().to(login_admin))
-                                .route("/logout", web::post().to(logout_admin))
+                )
+                .service(
+                    web::scope("/protected")
+                    .wrap(from_fn(jwt_auth_middleware))
+                    .route("/logout", web::get().to(logout_admin))
                 )
                 .service(
                     web::scope("/auth/games")

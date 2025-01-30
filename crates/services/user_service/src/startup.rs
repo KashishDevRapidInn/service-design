@@ -86,12 +86,12 @@ pub async fn run_server(
                     web::scope("/users")
                                 .route("/register", web::post().to(register_user))
                                 .route("/login", web::post().to(login_user))
-                                .route("/logout", web::post().to(logout_user))
                 )
                 .service(
                     web::scope("/user/protected")
                     .wrap(from_fn(jwt_auth_middleware))
                     .route("/view_user", web::get().to(view_user))
+                    .route("/logout", web::post().to(logout_user))
                 )
             )       
     })

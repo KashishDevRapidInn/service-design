@@ -10,7 +10,7 @@ use actix_web::{web, HttpResponse, HttpRequest};
 use argon2::{self, Argon2, PasswordHasher};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
-
+use anyhow::Error;  
 use serde_json::json;
 use tracing::instrument;
 use uuid::Uuid;
@@ -110,13 +110,24 @@ pub async fn login_user(
 // Logout user Route
 /******************************************/
 /**
- * @route   POST /protected/logout
+ * @route   POST /user/protected/logout
  * @access  JWT Protected
  */
-#[instrument(name = "Logout a user", skip(session))]
-pub async fn logout_user(session: web::Data<RedisService>) -> HttpResponse {
-    todo!();
-    HttpResponse::Ok().body("Logout successfull")
+#[instrument(name = "Logout a user", skip(session, req))]
+pub async fn logout_user(
+    session: web::Data<RedisService>,
+    req: web::ReqData<Claims>,
+) -> Result<HttpResponse, CustomError> {
+    let session_id= req.into_inner().sid;
+    match session.delete_session(&session_id).await {
+        Ok(_) => {
+            Ok(HttpResponse::Ok().body("Logout successful"))
+        }
+        Err(err) => {
+            eprintln!("Failed to delete session: {:?}", err);
+            Err(CustomError::UnexpectedError(anyhow::anyhow!("Failed to log out").into())) 
+        }
+    }
 }
 
 /******************************************/

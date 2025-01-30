@@ -1,4 +1,4 @@
-use helpers::auth_jwt::auth::create_jwt;
+use helpers::auth_jwt::auth::{create_jwt, Claims};
 use lib_config::db::db::PgPool;
 use errors::{AuthError, CustomError, DbError};
 use crate::schema::admins::dsl::*;
@@ -99,12 +99,22 @@ pub async fn login_admin(
 // Logout admin Route
 /******************************************/
 /**
- * @route   POST /ap1/v1/logout
+ * @route   Get /ap1/v1/protected/logout
  * @access  JWT Protected
  */
 #[instrument(name = "Logout a admin", skip(session))]
-pub async fn logout_admin(session: web::Data<RedisService>) -> HttpResponse {
-    // session.log_out();
-    todo!();
-    HttpResponse::Ok().body("Logout successfull")
+pub async fn logout_admin(
+    session: web::Data<RedisService>,
+    req: web::ReqData<Claims>,
+) -> Result<HttpResponse, CustomError> {
+    let session_id= req.into_inner().sid;
+    match session.delete_session(&session_id).await {
+        Ok(_) => {
+            Ok(HttpResponse::Ok().body("Logout successful"))
+        }
+        Err(err) => {
+            eprintln!("Failed to delete session: {:?}", err);
+            Err(CustomError::UnexpectedError(anyhow::anyhow!("Failed to log out").into())) 
+        }
+    }
 }
