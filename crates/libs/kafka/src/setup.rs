@@ -42,6 +42,7 @@ pub async fn setup_kafka_receiver(
     let (tx, rx) = flume::unbounded();
 
     let consumer = create_consumer(kafka_broker_url, consumer_group);
+    tracing::info!("Topics subscription: {:?}", topics);
     consumer.subscribe(&topics.iter().map(|s| s.as_str()).collect::<Vec<_>>())
         .expect("Failed to subsribe to topics");
 
