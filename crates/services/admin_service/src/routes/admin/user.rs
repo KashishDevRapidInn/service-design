@@ -12,8 +12,17 @@ use uuid::Uuid;
 use crate::routes::admin::model::{DeleteUserMessage, User};
 
 use super::model::Paginate;
+use tracing::instrument;
 
-pub async fn get_user(
+/******************************************/
+// Get user Route
+/******************************************/
+/**
+ * @route   GET /ap1/v1/auth/users/{user_id}
+ * @access  Privare
+ */
+#[instrument(name = "Get user by id", skip(user_id, pool))]
+pub async fn get_user_by_id(
     pool: web::Data<PgPool>,
     user_id: web::Path<Uuid>
 ) -> Result<HttpResponse, CustomError> {
@@ -46,8 +55,15 @@ pub async fn get_user(
         None => Err(DbError::NotFound(user_id.to_string()).into())
     }
 }
-
-pub async fn get_user_ids(
+/******************************************/
+// Get user by ID Route
+/******************************************/
+/**
+ * @route   GET /ap1/v1/auth/users/
+ * @access  Private
+ */
+#[instrument(name = "Get users", skip(query, pool))]
+pub async fn get_users(
     pool: web::Data<PgPool>,
     query: web::Query<Paginate>
 ) -> Result<HttpResponse, CustomError> {
@@ -82,7 +98,14 @@ pub async fn get_user_ids(
         None => Err(DbError::NotFound("No users found".to_string()).into())
     }
 }
-
+/******************************************/
+// Dekete user by ID Route
+/******************************************/
+/**
+ * @route   DELETE /ap1/v1/auth/users/{user_id}
+ * @access  Private
+ */
+#[instrument(name = "Delete user", skip(user_id, pool, kafka_producer))]
 pub async fn delete_user(
     pool: web::Data<PgPool>,
     user_id: web::Path<Uuid>,

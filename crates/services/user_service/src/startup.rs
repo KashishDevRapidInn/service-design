@@ -2,12 +2,9 @@ use kafka::{channel::KafkaMessage, setup::{setup_kafka_receiver, setup_kafka_sen
 use lib_config::{config::configuration::Settings, db::db::PgPool};
 // use crate::middleware::jwt_auth_middleware;
 use crate::{kafka_handler::process_kafka_message, routes::{
-    health_check::{get_session, health_check, set_session},
+    health_check::health_check,
     user::crud::{login_user, logout_user, register_user, view_user}
 }};
-use actix_session::storage::RedisSessionStore;
-use actix_session::SessionMiddleware;
-use actix_web::cookie::Key;
 use actix_web::{dev::Server, web, App, HttpServer};
 use actix_web_lab::middleware::from_fn;
 use middleware::jwt::jwt_auth_middleware;
@@ -17,21 +14,7 @@ use tracing_actix_web::TracingLogger;
 use lib_config::session::redis::RedisService;
 
 use flume::Sender;
-/******************************************/
-// Initializing Redis connection
-/******************************************/
-pub async fn init_redis(redis_uri: String) -> Result<RedisSessionStore, std::io::Error> {
-    // let redis_uri = env::var("REDIS_URI").expect("Failed to get redis uri");
-    RedisSessionStore::new(redis_uri).await.map_err(|e| {
-        eprintln!("Failed to create Redis session store: {:?}", e);
-        std::io::Error::new(std::io::ErrorKind::Other, "Redis connection failed")
-    })
-}
 
-
-pub fn generate_secret_key() -> Key {
-    Key::generate()
-}
 /**************************************************************/
 // Application State re reuse the same code in main and tests
 /***************************************************************/
@@ -87,24 +70,16 @@ pub async fn run_server(
     redis_uri: String,
     kafka_sender: Sender<KafkaMessage<String>>
 ) -> Result<Server, std::io::Error> {
-    let redis_store = init_redis(redis_uri.clone()).await?;
-    let secret_key = generate_secret_key();
 
     let redis_service = RedisService::new(redis_uri).await;
 
     let server = HttpServer::new(move || {
         App::new()
             .wrap(TracingLogger::default())
-            .wrap(SessionMiddleware::new(
-                redis_store.clone(),
-                secret_key.clone(),
-            ))
             .app_data(web::Data::new(redis_service.clone()))
             .app_data(web::Data::new(pool.clone()))
             .app_data(web::Data::new(kafka_sender.clone()))
             .route("/health_check", web::get().to(health_check))
-            .route("/set_session", web::get().to(set_session))
-            .route("/get_session", web::get().to(get_session))
             .service(
                 web::scope("/api/v1")
                 .service(

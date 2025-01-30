@@ -2,7 +2,6 @@ use helpers::auth_jwt::auth::create_jwt;
 use lib_config::db::db::PgPool;
 use errors::{AuthError, CustomError, DbError};
 use crate::schema::admins::dsl::*;
-use crate::session_state::TypedSession;
 use crate::routes::admin::validate_user::validate_credentials;
 use helpers::validations::validations::{UserEmail, UserName, CreateUserBody, LoginUserBody, generate_random_salt};
 use actix_web::{web, HttpResponse};
@@ -20,7 +19,7 @@ use lib_config::session::redis::RedisService;
 // Registering admin Route
 /******************************************/
 /**
- * @route   POST /register
+ * @route   POST /ap1/v1/register
  * @access  Public
  */
 #[instrument(name = "Register a new admin", skip(req_admin, pool), fields(username = %req_admin.username, email = %req_admin.email))]
@@ -68,7 +67,7 @@ pub async fn register_admin(
 // Login Route
 /******************************************/
 /**
- * @route   POST /login
+ * @route   POST /ap1/v1/login
  * @access  Public
  */
 #[instrument(name = "Login a admin", skip(req_login, pool, redis_service), fields(username = %req_login.email))]
@@ -100,33 +99,12 @@ pub async fn login_admin(
 // Logout admin Route
 /******************************************/
 /**
- * @route   POST /protected/logout
+ * @route   POST /ap1/v1/logout
  * @access  JWT Protected
  */
 #[instrument(name = "Logout a admin", skip(session))]
-pub async fn logout_admin(session: TypedSession) -> HttpResponse {
-    session.log_out();
+pub async fn logout_admin(session: web::Data<RedisService>) -> HttpResponse {
+    // session.log_out();
+    todo!();
     HttpResponse::Ok().body("Logout successfull")
 }
-
-
-// #[instrument(name = "Get user", skip(pool))]
-// pub async fn load_by_id(
-//     pool: web::Data<PgPool>,
-//     admin_id: Uuid
-// ) -> Result<HttpResponse, CustomError> {
-    
-//     let mut conn = pool
-//         .get()
-//         .await
-//         .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
-
-
-//     let user: (String, String) = admins
-//         .filter(id.eq(admin_id))
-//         .select((username, email))
-//         .first(&mut conn)
-//         .await
-//         .map_err(|err| CustomError::DatabaseError(DbError::QueryBuilderError(err.to_string())))?;
-//     Ok(HttpResponse::Ok().json(user))
-// }

@@ -2,19 +2,20 @@
 use unicode_segmentation::UnicodeSegmentation;
 use serde::Deserialize;
 use argon2::{self, password_hash::SaltString};
+use errors::CustomError;
 
 #[derive(Debug)]
 pub struct UserName(String);
 
 impl UserName {
-    pub fn parse(s: String) -> std::result::Result<UserName, String> {
+    pub fn parse(s: String) -> std::result::Result<UserName, CustomError> {
         let is_empty_or_whitespace = s.trim().is_empty();
         let is_too_long = s.graphemes(true).count() > 256;
         let forbidden_characters = ['/', '(', ')', '"', '<', '>', '\\', '{', '}'];
         let contains_forbidden_characters = s.chars().any(|c| forbidden_characters.contains(&c));
 
         if is_empty_or_whitespace || is_too_long || contains_forbidden_characters {
-            Err(format!("{} is not a valid subscriber name.", s))
+            Err(CustomError::ValidationError(format!("{} is not a valid subscriber name", s)))
         } else {
             Ok(Self(s))
         }
@@ -32,12 +33,14 @@ use regex::Regex;
 pub struct UserEmail(String);
 
 impl UserEmail {
-    pub fn parse(s: String) -> std::result::Result<UserEmail, String> {
-        let email_regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+    pub fn parse(s: String) -> std::result::Result<UserEmail, CustomError> {
+        let email_regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+        .map_err(|e| CustomError::ValidationError(format!("Invalid regex: {}", e)))?;
+
         if email_regex.is_match(&s) {
             Ok(Self(s))
         } else {
-            Err(format!("{} is not a valid email address.", s))
+            Err(CustomError::ValidationError(format!("{} is not a valid email address.", s)))
         }
     }
 }
@@ -55,7 +58,7 @@ pub struct CreateUserBody {
     pub email: String,
 }
 impl CreateUserBody {
-    pub fn validate(self) -> Result<(UserName, UserEmail), String> {
+    pub fn validate(self) -> Result<(UserName, UserEmail), CustomError> {
         let user_name = UserName::parse(self.username)?;
         let user_email = UserEmail::parse(self.email)?;
         Ok((user_name, user_email))

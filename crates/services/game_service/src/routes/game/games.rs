@@ -99,6 +99,14 @@ pub async fn rate(
     Ok(HttpResponse::Ok().json("Rating successfully added."))
 }
 
+/******************************************/
+// Rate game Route
+/******************************************/
+/**
+ * @route   POST /rate
+ * @access  Public
+ */
+#[instrument(name = "Get game by slug", skip(pool, slug_game))]
 pub async fn get_game_by_slug(
     slug_game: &str,
     pool: &PgPool,

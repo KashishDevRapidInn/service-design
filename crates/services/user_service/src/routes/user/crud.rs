@@ -4,7 +4,6 @@ use kafka::channel::{push_to_broker, KafkaMessage};
 use lib_config::db::db::PgPool;
 use errors::{AuthError, CustomError, DbError};
 use crate::schema::users::dsl::*;
-use crate::session_state::TypedSession;
 use crate::routes::user::validate_user::validate_credentials;
 use helpers::validations::validations::{CreateUserBody, LoginUserBody, generate_random_salt};
 use actix_web::{web, HttpResponse, HttpRequest};
@@ -30,11 +29,10 @@ use super::model::{RegisterUserMessage, User};
  * @route   POST /register
  * @access  Public
  */
-#[instrument(name = "Register a new user", skip(req_user, pool, session), fields(username = %req_user.username, email = %req_user.email))]
+#[instrument(name = "Register a new user", skip(req_user, pool), fields(username = %req_user.username, email = %req_user.email))]
 pub async fn register_user(
     pool: web::Data<PgPool>,
     req_user: web::Json<CreateUserBody>,
-    session: TypedSession,
     kafka_producer: web::Data<Sender<KafkaMessage<String>>>
 ) -> Result<HttpResponse, CustomError> {
     let pool = pool.clone();
@@ -70,7 +68,6 @@ pub async fn register_user(
 
     let _ = push_to_broker(&kafka_producer, &result).await;
 
-    let _ = session.insert_user_id(user_id);
     Ok(HttpResponse::Ok().body("User created successfully".to_string()))
 }
 
@@ -117,8 +114,8 @@ pub async fn login_user(
  * @access  JWT Protected
  */
 #[instrument(name = "Logout a user", skip(session))]
-pub async fn logout_user(session: TypedSession) -> HttpResponse {
-    session.log_out();
+pub async fn logout_user(session: web::Data<RedisService>) -> HttpResponse {
+    todo!();
     HttpResponse::Ok().body("Logout successfull")
 }
 
@@ -135,11 +132,6 @@ pub async fn view_user(
     req: web::ReqData<Claims>,
     redis_service: web::Data<RedisService>
 ) -> Result<HttpResponse, CustomError> {
-    // let session_id: String = req
-    //     .extensions()
-    //     .get::<String>()
-    //     .ok_or_else(|| CustomError::AuthenticationError(AuthError::SessionAuthenticationError("Session not found".to_string())))?
-    //     .clone();
     let session_id= req.into_inner().sid;
 
     let user_id_str = redis_service.get_session(session_id).await.map_err(|_| {
@@ -166,12 +158,6 @@ pub async fn view_user(
         .get()
         .await
         .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
-    // if user_id.is_none() {
-    //     return Err(CustomError::AuthenticationError(
-    //         AuthError::SessionAuthenticationError("User not found".to_string()),
-    //     ));
-    // }
-    // let user_id = user_id.unwrap();
 
     let user: (String, String) = users
         .filter(id.eq(user_id))

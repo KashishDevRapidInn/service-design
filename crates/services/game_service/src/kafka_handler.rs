@@ -1,6 +1,7 @@
 use chrono::NaiveDateTime;
 use diesel::prelude::Insertable;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use errors::CustomError;
 use flume::Receiver;
 use lib_config::db::db::PgPool;
 use rdkafka::message::OwnedMessage;
