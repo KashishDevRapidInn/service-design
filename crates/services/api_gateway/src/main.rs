@@ -1,5 +1,6 @@
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use actix_web::middleware::Logger;
+use errors::CustomError;
 use reqwest::Client;
 use std::sync::Arc;
 use lib_config::config::configuration;
@@ -9,13 +10,10 @@ use reqwest::{header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE}};
 use serde::{Serialize, Deserialize};
 use actix_web::http::StatusCode;
 
-#[derive(Serialize, Deserialize)]
-struct ApiResponse {
-    status: String,
-    message: Option<String>,
-}
-
 use lib_config::session::redis::RedisService;
+use bytes::Bytes;
+use anyhow;
+use tracing::instrument;
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let subscriber = get_subscriber("api_gateway".into(), "info".into(), std::io::stdout);
@@ -36,102 +34,75 @@ async fn main() -> std::io::Result<()> {
     .run()
     .await
 }
-async fn forward_requests(
+#[instrument("forward requests", skip(client, req, body))]
+pub(crate) async fn forward_requests(
     path: web::Path<(String, String)>, 
     client: web::Data<Arc<Client>>,
     req: HttpRequest,
     body: Option<web::Json<Value>>,
-) -> HttpResponse {
+) -> Result<HttpResponse, CustomError> {
     let (service, endpoint) = path.into_inner();
     
-    let config = configuration::Settings::new().expect("Failed to load configurations");
+    let config = match configuration::Settings::new() {
+        Ok(conf) => conf,
+        Err(_) => {
+            let err_msg = "Failed to load configurations".to_string();
+            return Err(CustomError::UnexpectedError(anyhow::Error::msg(err_msg)));
+        }
+    };
 
     let base_url = match service.as_str() {
         "user" => format!("http://{}:{}/{}", config.domain.user_service_domain, config.service.user_service_port, endpoint),
         "admin" => format!("http://{}:{}/{}", config.domain.admin_service_domain, config.service.admin_service_port, endpoint),
         "game" => format!("http://{}:{}/{}", config.domain.game_service_domain, config.service.game_service_port, endpoint),
-        _ => return HttpResponse::BadRequest().body("Invalid service name"),
+        _ => {
+            let err_msg = "Invalid service name".to_string();
+            return Err(CustomError::ValidationError(err_msg));
+        }
     };
+
     let query_string = req.query_string();
     let mut full_url = base_url;
-
     if !query_string.is_empty() {
         full_url.push_str("?");
         full_url.push_str(query_string);
     }
 
-    let auth_header = req.headers().get(AUTHORIZATION).cloned();
+    let auth_header = req.headers().get("Authorization").cloned();
     let mut headers = HeaderMap::new();
     if let Some(auth_header_value) = auth_header {
-        headers.insert(AUTHORIZATION, auth_header_value);
+        headers.insert("Authorization", auth_header_value);
     }
+    headers.insert("Content-Type", HeaderValue::from_static("application/json"));
 
-    let method = req.method().clone();
-    
-    let response = match method {
-        actix_web::http::Method::GET => {
-            client
-                .get(&full_url)
-                .headers(headers)
-                .send()
-                .await
-                .expect("Failed to send GET request")
-        },
-        actix_web::http::Method::POST => {
-            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-            let json_body = match body {
-                Some(b) => serde_json::to_string(&b).expect("Failed to serialize body to JSON"),
-                None => return HttpResponse::BadRequest().body("Expected body for POST request"),
-            };
-            client
-                .post(&full_url)
-                .headers(headers)
-                .body(json_body)
-                .send()
-                .await
-                .expect("Failed to send POST request")
-        },
-        actix_web::http::Method::DELETE => {
-            client
-                .delete(&full_url)
-                .headers(headers)
-                .send()
-                .await
-                .expect("Failed to send DELETE request")
-        },
-        actix_web::http::Method::PATCH => {
-            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-            let json_body = match body {
-                Some(b) => serde_json::to_string(&b).expect("Failed to serialize body to JSON"),
-                None => return HttpResponse::BadRequest().body("Expected body for PATCH request"),
-            };
-            client
-                .patch(&full_url)
-                .headers(headers)
-                .body(json_body)
-                .send()
-                .await
-                .expect("Failed to send PATCH request")
-        },
-        _ => return HttpResponse::MethodNotAllowed().body("Method not allowed"),
-    };
+    let mut request_builder = client.request(req.method().clone(), full_url)
+        .headers(headers);
 
-    let status_code = response.status().as_u16();
-    let status = StatusCode::from_u16(status_code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR); 
+    let request_builder = request_builder.body(match body {
+        Some(b) => serde_json::to_string(&b).unwrap_or_default(),
+        None => "".to_string(),
+    });
 
-    let response_body = response.text().await.expect("Failed to read response");
-    let response_json: Value = serde_json::from_str(&response_body).unwrap_or(Value::Null);
-    let pretty_response = to_string_pretty(&response_json).unwrap_or_else(|_| response_body);
+    let response = request_builder.send().await;
 
-    let api_response = ApiResponse {
-        status: if status_code == 200 {
-            "success".into()
-        } else {
-            "error".into()
+    match response {
+        Ok(mut resp) => {
+            let status = resp.status().clone();
+            let headers = resp.headers().clone();
+            let body = resp.bytes().await.unwrap_or_else(|_| Bytes::from("Failed to read response body"));
+
+            let mut http_response = HttpResponse::build(status);
+            for (header_name, header_value) in headers.iter() {
+                http_response.insert_header((
+                    header_name.as_str(),
+                    header_value.to_str().unwrap_or_default().to_string(),
+                ));
+            }
+            Ok(http_response.body(body))
         },
-        message: Some(pretty_response.clone())
-    };
-
-    HttpResponse::build(status)
-        .json(api_response) 
+        Err(err) => {
+            let err_msg = format!("Error forwarding request: {:#?}", err);
+            Err(CustomError::UnexpectedError(anyhow::Error::msg(err_msg)))
+        }
+    }
 }

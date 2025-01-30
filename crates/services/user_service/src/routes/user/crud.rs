@@ -67,7 +67,7 @@ pub async fn register_user(
 
     let _ = push_to_broker(&kafka_producer, &result).await;
 
-    Ok(HttpResponse::Ok().body("User created successfully".to_string()))
+    Ok(HttpResponse::Ok().json("User created successfully".to_string()))
 }
 
 /******************************************/
@@ -120,7 +120,7 @@ pub async fn logout_user(
     let session_id= req.into_inner().sid;
     match session.delete_session(&session_id).await {
         Ok(_) => {
-            Ok(HttpResponse::Ok().body("Logout successful"))
+            Ok(HttpResponse::Ok().json("Logout successful"))
         }
         Err(err) => {
             eprintln!("Failed to delete session: {:?}", err);

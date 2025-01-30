@@ -139,6 +139,6 @@ pub async fn delete_user(
         let _ = push_to_broker(&kafka_producer, &message).await
             .map_err(|_| tracing::error!("Failed to send message to broker: {:?}", message));
 
-        Ok(HttpResponse::Ok().body(format!("Deleted user: {}", user_id)))
+        Ok(HttpResponse::Ok().json(format!("Deleted user: {}", user_id)))
     }
 }
