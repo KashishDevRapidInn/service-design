@@ -31,16 +31,6 @@ pub fn init_elasticsearch() -> Result<Elasticsearch, Box<dyn Error>> {
     let es_client = Elasticsearch::new(transport);
     Ok(es_client)
 }
-/******************************************/
-// Initializing Redis connection
-/******************************************/
-pub async fn init_redis(redis_uri: String) -> Result<RedisSessionStore, std::io::Error> {
-    // let redis_uri = env::var("REDIS_URI").expect("Failed to get redis uri");
-    RedisSessionStore::new(redis_uri).await.map_err(|e| {
-        eprintln!("Failed to create Redis session store: {:?}", e);
-        std::io::Error::new(std::io::ErrorKind::Other, "Redis connection failed")
-    })
-}
 
 
 pub fn generate_secret_key() -> Key {
@@ -104,18 +94,12 @@ pub async fn run_server(
     kafka_sender: Sender<KafkaMessage<String>>,
     es_client: Elasticsearch
 ) -> Result<Server, std::io::Error> {
-    let redis_store = init_redis(redis_uri.clone()).await?;
-    let secret_key = generate_secret_key();
 
     let redis_service = RedisService::new(redis_uri).await;
 
     let server = HttpServer::new(move || {
         App::new()
             .wrap(TracingLogger::default())
-            .wrap(SessionMiddleware::new(
-                redis_store.clone(),
-                secret_key.clone(),
-            ))
             .app_data(web::Data::new(redis_service.clone()))
             .app_data(web::Data::new(pool.clone()))
             .app_data(web::Data::new(kafka_sender.clone()))

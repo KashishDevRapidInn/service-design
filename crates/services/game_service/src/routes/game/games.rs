@@ -181,6 +181,7 @@ pub async fn get_game(
     Ok(HttpResponse::Ok().json(ret))
 }
 
+#[instrument(name = "Get game by slug", skip(pool, slug_game))]
 pub async fn get_game_by_slug(
     slug_game: &str,
     pool: &PgPool,
