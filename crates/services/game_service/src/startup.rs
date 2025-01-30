@@ -1,12 +1,10 @@
 use kafka::{channel::KafkaMessage, setup::{setup_kafka_sender, setup_kafka_receiver}};
 use lib_config::{config::configuration::Settings, db::db::PgPool};
 use crate::routes::{game::games::get_game, health_check::health_check};
-use actix_session::storage::RedisSessionStore;
-use actix_session::SessionMiddleware;
 use actix_web::cookie::Key;
 use actix_web::{dev::Server, web, App, HttpServer};
 use actix_web_lab::middleware::from_fn;
-use middleware::jwt::jwt_auth_middleware;
+use middleware::jwt::{jwt_auth_middleware, RoleRestrictor};
 use std::net::TcpListener;
 use tracing_actix_web::TracingLogger;
 
@@ -18,6 +16,7 @@ use elasticsearch::{Elasticsearch};
 use elasticsearch::http::transport::Transport;
 use std::error::Error;
 use reqwest::ClientBuilder;
+use helpers::auth_jwt::auth::Role;
 
 /******************************************/
 // Initializing Elastic client
@@ -33,9 +32,6 @@ pub fn init_elasticsearch() -> Result<Elasticsearch, Box<dyn Error>> {
 }
 
 
-pub fn generate_secret_key() -> Key {
-    Key::generate()
-}
 /**************************************************************/
 // Application State re reuse the same code in main and tests
 /***************************************************************/
@@ -107,7 +103,7 @@ pub async fn run_server(
             .route("/health_check", web::get().to(health_check))
             .service(
                 web::scope("/api/v1")
-                    .wrap(from_fn(jwt_auth_middleware))
+                    .wrap(from_fn(jwt_auth_middleware::<UserRoleRestrictor>))
                     .route("/rate", web::post().to(rate))
                     .route("/", web::get().to(get_game))
             )       
@@ -115,4 +111,11 @@ pub async fn run_server(
     .listen(listener)?
     .run();
     Ok(server)
+}
+struct UserRoleRestrictor();
+
+impl RoleRestrictor for UserRoleRestrictor {
+    fn role_allowed() -> helpers::auth_jwt::auth::Role {
+        Role::User
+    }
 }

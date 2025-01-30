@@ -83,7 +83,7 @@ pub async fn run_server(
                 )
                 .service(
                     web::scope("/protected")
-                    .wrap(from_fn(jwt_auth_middleware))
+                    .wrap(from_fn(jwt_auth_middleware::<UserRoleRestrictor>))
                     .route("/logout", web::get().to(logout_admin))
                 )
                 .service(
@@ -113,5 +113,12 @@ struct AdminRoleRestrictor();
 impl RoleRestrictor for AdminRoleRestrictor {
     fn role_allowed() -> helpers::auth_jwt::auth::Role {
         Role::Admin
+    }
+}
+struct UserRoleRestrictor();
+
+impl RoleRestrictor for UserRoleRestrictor {
+    fn role_allowed() -> helpers::auth_jwt::auth::Role {
+        Role::User
     }
 }
