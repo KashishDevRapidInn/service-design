@@ -1867,6 +1867,7 @@ dependencies = [
  "deadpool-redis",
  "diesel",
  "diesel-async",
+ "errors",
  "redis 0.21.7",
  "serde 1.0.217",
  "tokio",

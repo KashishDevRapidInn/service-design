@@ -25,13 +25,19 @@ use super::model::Paginate;
  * @route   POST /rate
  * @access  Protected
  */
-#[instrument(name = "Rate game", skip(pool, rate_game_req, req, elastic_client))]
+#[instrument(name = "Rate game", skip(pool, rate_game_req, req, elastic_client, redis_service))]
 pub async fn rate(
     pool: web::Data<PgPool>,
     rate_game_req: web::Json<RateGameRequest>, 
     req: web::ReqData<Claims>,
     elastic_client: web::Data<Elasticsearch>,
+    redis_service: web::Data<RedisService>
 ) -> Result<HttpResponse, CustomError>{
+    let req = req.into_inner();
+    let session_id= req.sid;
+
+    let _ = redis_service.get_user_from_session(&session_id).await?;
+
     let pool_clone= pool.clone();
     let pool_ref= pool_clone.as_ref();
     let mut conn = pool
@@ -41,7 +47,7 @@ pub async fn rate(
 
     let rate_game_req = rate_game_req.into_inner();
     let slug = rate_game_req.game_slug;
-    let id_user = req.into_inner().sub;
+    let id_user = req.sub;
     let game_rating = rate_game_req.rating;
     let game_review: Option<String> = rate_game_req.review;
 
@@ -109,8 +115,13 @@ pub async fn rate(
 #[instrument(name = "Get game list", skip_all)]
 pub async fn get_game(
     paginate: web::Query<Paginate>,
-    elastic_client: web::Data<Elasticsearch>
+    elastic_client: web::Data<Elasticsearch>,
+    req: web::ReqData<Claims>,
+    redis_service: web::Data<RedisService>
 ) -> Result<HttpResponse, CustomError> {
+    let session_id= req.into_inner().sid;
+    let _ = redis_service.get_user_from_session(&session_id).await?;
+
     let paginate = paginate.into_inner();
     let from = (paginate.page - 1) * paginate.limit;
 

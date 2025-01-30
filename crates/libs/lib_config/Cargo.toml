@@ -14,3 +14,4 @@ deadpool-redis = "0.9.0"
 redis = { version = "0.21.7", features = ["tokio", "aio"] }
 tokio-native-tls = "0.3"    
 uuid = {version= "1.10.0", features=["v4", "serde"]}
+errors = { path = "../errors/" }
