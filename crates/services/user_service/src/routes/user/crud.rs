@@ -133,20 +133,8 @@ pub async fn view_user(
     redis_service: web::Data<RedisService>
 ) -> Result<HttpResponse, CustomError> {
     let session_id= req.into_inner().sid;
+    let user_id_str = redis_service.get_user_from_session(&session_id).await?;
 
-    let user_id_str = redis_service.get_session(session_id).await.map_err(|_| {
-        CustomError::AuthenticationError(AuthError::SessionAuthenticationError(
-            "User not found".to_string(),
-        ))
-    })?;
-    let user_id_str = match user_id_str {
-        Some(id_user) => id_user,
-        None => {
-            return Err(CustomError::AuthenticationError(
-                AuthError::SessionAuthenticationError("User not found".to_string()),
-            ));
-        }
-    };
     // Parse the session ID string into a UUID
     let user_id = Uuid::parse_str(&user_id_str).map_err(|_| {
         CustomError::AuthenticationError(AuthError::SessionAuthenticationError(

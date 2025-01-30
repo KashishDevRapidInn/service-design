@@ -1,4 +1,5 @@
 use deadpool_redis::{Config, Pool, Connection};
+use errors::AuthError;
 use std::sync::Arc;
 use redis::AsyncCommands;  // we still need `redis` for the commands but don't manually instantiate the client
 use uuid::Uuid;
@@ -45,5 +46,21 @@ impl RedisService {
         let mut con = self.get_connection().await.unwrap();
         con.del(session_id).await?;
         Ok(())
+    }
+
+    // Helper function for getting uid from sid
+    pub async fn get_user_from_session(&self, sid: &String) -> Result<String, AuthError> {
+        let user_id_str = self.get_session(sid.to_string()).await.map_err(|_| {
+            AuthError::SessionAuthenticationError(
+                "User not found".to_string(),
+            )
+        })?;
+
+        match user_id_str {
+            Some(id_user) => Ok(id_user),
+            None => {
+                Err(AuthError::SessionAuthenticationError("User not found".to_string()).into())
+            }
+        }
     }
 }
