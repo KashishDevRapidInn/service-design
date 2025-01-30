@@ -39,10 +39,15 @@ pub struct User {
 }
 
 #[derive(Deserialize, Queryable)]
-
 #[diesel(table_name = crate::schema::rate_game)]
 pub struct RateGameRequest {
     pub game_slug: String,
     pub rating: i32,
     pub review: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct Paginate {
+    pub page: i64,
+    pub limit: i64
 }
