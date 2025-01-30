@@ -14,12 +14,10 @@ use anyhow::Error;
 use serde_json::json;
 use tracing::instrument;
 use uuid::Uuid;
-use actix_web::cookie::{Cookie, CookieJar};
-use actix_web::cookie::time::Duration;
 use lib_config::session::redis::RedisService;
 use actix_web::HttpMessage; //for .extensions()
 use anyhow::Context;
-
+use super::response::UserResponse;
 use super::model::{RegisterUserMessage, User};
 
 
@@ -159,10 +157,10 @@ pub async fn view_user(
         .await
         .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
 
-    let user: (String, String) = users
+    let user: UserResponse = users
         .filter(id.eq(user_id))
-        .select((username, email))
-        .first(&mut conn)
+        .select(UserResponse::as_select())
+        .first::<UserResponse>(&mut conn)
         .await
         .map_err(|err| CustomError::DatabaseError(DbError::QueryBuilderError(err.to_string())))?;
     Ok(HttpResponse::Ok().json(user))
