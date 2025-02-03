@@ -83,7 +83,7 @@ pub async fn run_server(
                 )
                 .service(
                     web::scope("/protected")
-                    .wrap(from_fn(jwt_auth_middleware::<UserRoleRestrictor>))
+                    .wrap(from_fn(jwt_auth_middleware::<AdminRoleRestrictor>))
                     .route("/logout", web::get().to(logout_admin))
                 )
                 .service(
