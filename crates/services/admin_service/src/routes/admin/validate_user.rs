@@ -1,8 +1,8 @@
 use anyhow::Context;
 use lib_config::db::db::PgPool;
-use errors::{AuthError, CustomError, DbError};
+use errors::{AuthError, CustomError};
 use helpers::validations::validations::LoginUserBody;
-use crate::schema::admins::dsl::*;
+use crate::{db_error::DbError, schema::admins::dsl::*};
 use utils::telemetry::spawn_blocking_with_tracing;
 use argon2::{self, Argon2, PasswordHash, PasswordVerifier};
 use diesel::prelude::*;
@@ -20,32 +20,28 @@ async fn get_stored_credentials(
         .await
         .context("Failed to get connection from pool")?;
 
-    let row: Result<Option<Vec<(String, Uuid)>>, diesel::result::Error> = admins
+    let row: Option<Vec<(String, Uuid)>> = admins
         .filter(email.eq(user_email))
         .select((password_hash, id))
         .load::<(String, Uuid)>(&mut conn)
         .await
-        .optional();
+        .optional()
+        .map_err(DbError)?;
 
     let (id_user, expected_hash_password) = match row {
-        Ok(Some(vec)) => {
+        Some(vec) => {
             if let Some((hash_password, id_user)) = vec.into_iter().next() {
                 (id_user, hash_password)
             } else {
                 return Err(CustomError::AuthenticationError(
-                    AuthError::OtherAuthenticationError("Invalid username or password".to_string()),
+                    AuthError::InvalidCredentials(anyhow::anyhow!(format!("Did not receive entry for email: {}", user_email))),
                 ));
             }
         }
-        Ok(None) => {
+        None => {
             return Err(CustomError::AuthenticationError(
-                AuthError::OtherAuthenticationError("Invalid username or password".to_string()),
+                AuthError::InvalidCredentials(anyhow::anyhow!(format!("Did not receive entry for email: {}", user_email))),
             ));
-        }
-        Err(err) => {
-            return Err(CustomError::DatabaseError(DbError::QueryBuilderError(
-                err.to_string(),
-            )))
         }
     };
     Ok((id_user, expected_hash_password))
@@ -66,8 +62,7 @@ pub async fn validate_credentials(
     req_login: &LoginUserBody,
 ) -> Result<Uuid, CustomError> {
     let (user_id, stored_password_hash) = get_stored_credentials(&req_login.email, pool)
-        .await
-        .unwrap();
+        .await?;
 
     let entered_pasword = req_login.password.to_owned();
     let is_valid = spawn_blocking_with_tracing(move || {
@@ -79,7 +74,7 @@ pub async fn validate_credentials(
         return Ok(user_id);
     } else {
         return Err(CustomError::AuthenticationError(
-            AuthError::JwtAuthenticationError("Invalid credentials".to_string()),
+            AuthError::InvalidCredentials(anyhow::anyhow!("Password invalid")),
         ));
     }
 }

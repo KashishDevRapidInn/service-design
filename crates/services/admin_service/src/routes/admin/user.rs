@@ -1,15 +1,17 @@
+use actix_web::http::StatusCode;
 use actix_web::{web, HttpResponse};
 use anyhow::Context;
 use diesel::{ExpressionMethods, QueryDsl, SelectableHelper};
 use diesel::prelude::OptionalExtension;
 use diesel_async::RunQueryDsl;
-use errors::{CustomError, DbError};
+use errors::{AuthError, CustomError};
 use flume::Sender;
 use kafka::channel::{push_to_broker, KafkaMessage};
 use lib_config::db::db::PgPool;
 use serde_json::json;
 use uuid::Uuid;
 
+use crate::db_error::DbError;
 use crate::routes::admin::model::{DeleteUserMessage, User};
 
 use super::model::Paginate;
@@ -41,16 +43,11 @@ pub async fn get_user_by_id(
         .get_result(&mut conn)
         .await
         .optional()
-        .map_err(|_| {
-            DbError::Other(
-                "Failed to get user from database".to_string()
-            )
-        })?;
+        .map_err(DbError)?
+        .context("User not present in user table")
+        .map_err(AuthError::InvalidCredentials)?;
 
-    match res {
-        Some(user) => Ok(HttpResponse::Ok().json(user)),
-        None => Err(DbError::NotFound(user_id.to_string()).into())
-    }
+    Ok(HttpResponse::Ok().json(res))
 }
 /******************************************/
 // Get user by ID Route
@@ -71,11 +68,7 @@ pub async fn get_users(
 
     let mut conn = pool.get()
         .await
-        .map_err(|_| {
-            DbError::ConnectionError(
-                "Failed to get connection from pool".to_string()
-            )
-        })?;
+        .context("Failed to get connection from pool")?;
 
     let user_ids = users::table
         .select(users::id)
@@ -84,15 +77,15 @@ pub async fn get_users(
         .get_results::<Uuid>(&mut conn)
         .await
         .optional()
-        .map_err(|_| {
-            DbError::Other(
-                "Failed to get user ids from database".to_string()
-            )
-        })?;
+        .map_err(DbError)?;
 
     match user_ids {
         Some(uids) => Ok(HttpResponse::Ok().json(json!({ "page": query.page, "limit": query.limit, "result": uids }))),
-        None => Err(DbError::NotFound("No users found".to_string()).into())
+        None => Err(CustomError::DatabaseError {
+            msg: "No users found".into(),
+            resp: "No more users".into(),
+            status_code: StatusCode::NOT_FOUND
+        })
     }
 }
 /******************************************/
@@ -114,23 +107,21 @@ pub async fn delete_user(
 
     let mut conn = pool.get()
         .await
-        .map_err(|_| {
-            DbError::ConnectionError(
-                "Failed to get connection from pool".to_string()
-            )
-        })?;
+        .context("Failed to get connection from pool")?;
 
     let res = diesel::delete(users::table)
         .filter(users::id.eq(user_id))
         .execute(&mut conn)
         .await
-        .map_err(|e| {
-            DbError::Other(e.to_string())
-        })?;
+        .map_err(DbError)?;
 
 
     if res == 0 {
-        Err(DbError::NotFound(format!("Didn't find user: {}", user_id).to_string()).into())
+        Err(CustomError::DatabaseError {
+            msg: "Returned usize == 0".into(),
+            resp: "Did not find user".into(),
+            status_code: StatusCode::NOT_FOUND
+        })
     } else {
         let message = DeleteUserMessage {
             id: user_id

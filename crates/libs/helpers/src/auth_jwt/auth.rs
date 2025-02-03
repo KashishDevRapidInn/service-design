@@ -3,6 +3,7 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use anyhow::Context;
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Claims {
     pub sub: String,
@@ -23,8 +24,9 @@ pub enum Role {
 /******************************************/
 // Creating JWT token
 /******************************************/
-pub fn create_jwt(user_id: &str, role: Role) -> Result<(String, String), String> {
-    let config = configuration::Settings::new().expect("Failed to load configurations");
+pub fn create_jwt(user_id: &str, role: Role) -> Result<(String, String), anyhow::Error> {
+    let config = configuration::Settings::new()
+        .context("Failed to get config")?;
     let expiration_time = (Utc::now() + Duration::hours(1)).timestamp() as usize;
     let issued_at = Utc::now().timestamp() as usize;
     let not_before = issued_at + 10;
@@ -42,7 +44,8 @@ pub fn create_jwt(user_id: &str, role: Role) -> Result<(String, String), String>
     // let secret = env::var("JWT_SECRET").expect("Jwt secret not found");
     let encoding_key = EncodingKey::from_secret(config.jwt.secret.as_ref());
     // encode(&Header::default(), &claims, &encoding_key).map_err(|err| err.to_string())
-    let token = encode(&Header::default(), &claims, &encoding_key).map_err(|err| err.to_string())?;
+    let token = encode(&Header::default(), &claims, &encoding_key)
+        .context("Failed to encode jwt")?;
     
     Ok((token, sid))
 }

@@ -1,9 +1,10 @@
+use actix_web::http::StatusCode;
 use helpers::auth_jwt::auth::{create_jwt, Claims};
 use anyhow::Context;
 use helpers::auth_jwt::auth::Role;
 use lib_config::db::db::PgPool;
-use errors::{AuthError, CustomError, DbError};
-use crate::schema::admins::dsl::*;
+use errors::{AuthError, CustomError};
+use crate::{db_error::DbError, schema::admins::dsl::*};
 use crate::routes::admin::validate_user::validate_credentials;
 use helpers::validations::validations::{UserEmail, UserName, CreateUserBody, LoginUserBody, generate_random_salt};
 use actix_web::{web, HttpResponse};
@@ -56,11 +57,14 @@ pub async fn register_admin(
         ))
         .execute(&mut conn)
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::QueryBuilderError(err.to_string())))?;
+        .map_err(DbError)?;
+
     if result == 0 {
-        return Err(CustomError::DatabaseError(DbError::InsertionError(
-            "Failed data insertion in db".to_string(),
-        )));
+        return Err(CustomError::DatabaseError{
+            msg: "Failed to insert user to table admins".into(),
+            resp: "Failed to create admin".into(),
+            status_code: StatusCode::INTERNAL_SERVER_ERROR
+        });
     }
     Ok(HttpResponse::Ok().json("Admin created successfully".to_string()))
 }
@@ -79,22 +83,11 @@ pub async fn login_admin(
     req_login: web::Json<LoginUserBody>,
     redis_service: web::Data<RedisService>,
 ) -> Result<HttpResponse, CustomError> {
-    let admin_id = validate_credentials(&pool, &req_login.into_inner()).await;
+    let id_admin = validate_credentials(&pool, &req_login.into_inner()).await?;
 
-    match admin_id {
-        Ok(id_admin) => {
-            let (token, sid) = create_jwt(&id_admin.to_string(), Role::Admin).map_err(|err| {
-                CustomError::AuthenticationError(AuthError::JwtAuthenticationError(err.to_string()))
-            })?;
-            let _= redis_service.set_session(&sid, &id_admin.to_string()).await;
-            Ok(HttpResponse::Ok().json(json!({"token": token})))
-        }
-        Err(err) => {
-            return Err(CustomError::AuthenticationError(
-                AuthError::OtherAuthenticationError(err.to_string()),
-            ));
-        }
-    }
+    let (token, sid) = create_jwt(&id_admin.to_string(), Role::Admin)?;
+    redis_service.set_session(&sid, &id_admin.to_string()).await?;
+    Ok(HttpResponse::Ok().json(json!({"token": token})))
 }
 
 /******************************************/
@@ -110,13 +103,6 @@ pub async fn logout_admin(
     req: web::ReqData<Claims>,
 ) -> Result<HttpResponse, CustomError> {
     let session_id= req.into_inner().sid;
-    match session.delete_session(&session_id).await {
-        Ok(_) => {
-            Ok(HttpResponse::Ok().json("Logout successful"))
-        }
-        Err(err) => {
-            eprintln!("Failed to delete session: {:?}", err);
-            Err(CustomError::UnexpectedError(anyhow::anyhow!("Failed to log out").into())) 
-        }
-    }
+    session.delete_session(&session_id).await?; 
+    Ok(HttpResponse::Ok().json("Logout successful"))
 }
