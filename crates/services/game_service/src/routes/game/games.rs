@@ -146,7 +146,7 @@ pub async fn get_game(
         .await
         .map_err(|err| {
             tracing::error!("Failed to fetch game data Elasticsearch response: {:?}", err);
-            CustomError::UnexpectedError(anyhow::anyhow!("Failed to fetch game data").into())
+            CustomError::UnexpectedError(anyhow::anyhow!("Failed to get response from elasticsearch").into())
         })?;
 
     let response_json = response.json::<serde_json::Value>()
@@ -157,9 +157,9 @@ pub async fn get_game(
         })?;
 
     let hits = response_json.get("hits")
-        .ok_or(CustomError::UnexpectedError(anyhow::anyhow!("Failed to fetch game data").into()))?
+        .ok_or(CustomError::UnexpectedError(anyhow::anyhow!("Failed to fetch outer hits field").into()))?
         .get("hits")
-        .ok_or(CustomError::UnexpectedError(anyhow::anyhow!("Failed to fetch game data").into()))?;
+        .ok_or(CustomError::UnexpectedError(anyhow::anyhow!("Failed to fetch inner hits field").into()))?;
 
     let ret = match hits {
         serde_json::Value::Array(res_vec) => {
@@ -168,7 +168,7 @@ pub async fn get_game(
                     let temp = res.get("_source")
                         .ok_or(
                             CustomError::UnexpectedError(anyhow::anyhow!(
-                                "Failed to fetch game data"
+                                "Failed to fetch \"_source\" field"
                             ).into()
                         ));
 
@@ -178,7 +178,7 @@ pub async fn get_game(
                     let temp = source.map(|doc| {
                         let game: Result<ElasticsearchGame, serde_json::Error> = serde_json::from_value(doc.clone());
                         game.map_err(|_| {
-                            CustomError::UnexpectedError(anyhow::anyhow!("Failed to Fetch game").into())
+                            CustomError::UnexpectedError(anyhow::anyhow!("Failed to deserialize \"_source\"").into())
                         })
                     })?;
 
