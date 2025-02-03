@@ -44,8 +44,11 @@ pub async fn get_user_by_id(
         .await
         .optional()
         .map_err(DbError)?
-        .context("User not present in user table")
-        .map_err(AuthError::InvalidCredentials)?;
+        .ok_or(CustomError::DatabaseError {
+            msg: "User not found by user id".into(),
+            resp: "User not found".into(),
+            status_code: StatusCode::NOT_FOUND
+        })?;
 
     Ok(HttpResponse::Ok().json(res))
 }
@@ -76,17 +79,13 @@ pub async fn get_users(
         .limit(query.limit)
         .get_results::<Uuid>(&mut conn)
         .await
-        .optional()
         .map_err(DbError)?;
 
-    match user_ids {
-        Some(uids) => Ok(HttpResponse::Ok().json(json!({ "page": query.page, "limit": query.limit, "result": uids }))),
-        None => Err(CustomError::DatabaseError {
-            msg: "No users found".into(),
-            resp: "No more users".into(),
-            status_code: StatusCode::NOT_FOUND
-        })
+    if user_ids.len() == 0 {
+        return Ok(HttpResponse::NotFound().json(json!({ "page": query.page, "limit": query.limit, "message": "No more results" })))
     }
+
+    Ok(HttpResponse::Ok().json(json!({ "page": query.page, "limit": query.limit, "result": user_ids })))
 }
 /******************************************/
 // Dekete user by ID Route
