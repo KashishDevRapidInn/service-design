@@ -1,8 +1,9 @@
 use deadpool_redis::{Config, Pool, Connection};
-use errors::AuthError;
+use anyhow::Context;
+use errors::{AuthError, CustomError};
 use std::sync::Arc;
 use redis::AsyncCommands;  // we still need `redis` for the commands but don't manually instantiate the client
-use uuid::Uuid;
+                           
 #[derive(Clone)]
 pub struct RedisService {
     pub pool: Arc<Pool>,
@@ -24,37 +25,45 @@ impl RedisService {
         })
     }
 
-    pub async fn get_session(&self, session_id: String) -> Result<Option<String>, deadpool_redis::redis::RedisError> {
-        let mut con = self.get_connection().await.unwrap();
+    pub async fn get_session(&self, session_id: String) -> Result<Option<String>, CustomError> {
+        let mut con = self.get_connection()
+            .await
+            .context("Failed to get Redis connection")?;
         let user_id: Option<String> = con.get(session_id).await.ok();
         Ok(user_id)
     }
 
-    pub async fn set_session(&self, session_id: &str, user_id: &str) -> Result<(), deadpool_redis::redis::RedisError> {
-        let mut con: Connection = self.get_connection().await.unwrap();
-        con.set(session_id, user_id).await?;
-        con.expire(session_id, 3600).await?; // Expire after 1 hour
+    pub async fn set_session(&self, session_id: &str, user_id: &str) -> Result<(), CustomError> {
+        let mut con: Connection = self.get_connection()
+            .await
+            .context("Failed to get Redis connection")?;
+        con.set(session_id, user_id)
+            .await
+            .context("Failed to set session")?;
+        con.expire(session_id, 3600)
+            .await
+            .context("Failed to set session expiry")?; // Expire after 1 hour
         Ok(())
     }
 
-    pub async fn delete_session(&self, session_id: &str) -> Result<(), deadpool_redis::redis::RedisError> {
-        let mut con = self.get_connection().await.unwrap();
-        con.del(session_id).await?;
+    pub async fn delete_session(&self, session_id: &str) -> Result<(), CustomError> {
+        let mut con = self.get_connection()
+            .await
+            .context("Failed to get Redis connection")?;
+        con.del(session_id)
+            .await
+            .context("Failed to delete session")?;
         Ok(())
     }
 
     // Helper function for getting uid from sid
-    pub async fn get_user_from_session(&self, sid: &String) -> Result<String, AuthError> {
-        let user_id_str = self.get_session(sid.to_string()).await.map_err(|_| {
-            AuthError::SessionAuthenticationError(
-                "User not found".to_string(),
-            )
-        })?;
+    pub async fn get_user_from_session(&self, sid: &String) -> Result<String, CustomError> {
+        let user_id_str = self.get_session(sid.to_string()).await?;
 
         match user_id_str {
             Some(id_user) => Ok(id_user),
             None => {
-                Err(AuthError::SessionAuthenticationError("User not found".to_string()).into())
+                Err(AuthError::InvalidSession(anyhow::anyhow!("Failed to get user for session")).into())
             }
         }
     }
