@@ -3843,6 +3843,7 @@ dependencies = [
  "rdkafka",
  "serde 1.0.217",
  "serde_json",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
  "tracing-actix-web",

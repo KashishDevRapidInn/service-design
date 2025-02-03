@@ -2,7 +2,8 @@ use helpers::auth_jwt::auth::{create_jwt, Claims, Role};
 use flume::Sender;
 use kafka::channel::{push_to_broker, KafkaMessage};
 use lib_config::db::db::PgPool;
-use errors::{AuthError, CustomError, DbError};
+use errors::{AuthError, CustomError};
+use crate::db_errors;
 use crate::schema::users::dsl::*;
 use crate::routes::user::validate_user::validate_credentials;
 use helpers::validations::validations::{CreateUserBody, LoginUserBody, generate_random_salt};
@@ -62,7 +63,7 @@ pub async fn register_user(
         .returning(User::as_returning())
         .get_result(&mut conn)
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::InsertionError(err.to_string())))?
+        .map_err(|err| db_errors::DbError(err))? 
         .into();
 
     let _ = push_to_broker(&kafka_producer, &result).await;
@@ -84,25 +85,14 @@ pub async fn login_user(
     req_login: web::Json<LoginUserBody>,
     redis_service: web::Data<RedisService>
 ) -> Result<HttpResponse, CustomError> {
-    let user_id = validate_credentials(&pool, &req_login.into_inner()).await;
+    let user_id = validate_credentials(&pool, &req_login.into_inner()).await?;
 
-    match user_id {
-        Ok(id_user) => {
+    let (token, sid) = create_jwt(&user_id.to_string(), Role::User)?;
+    
+    let _= redis_service.set_session(&sid, &user_id.to_string()).await?;
 
-            let (token, sid) = create_jwt(&id_user.to_string(), Role::User).map_err(|err| {
-                CustomError::AuthenticationError(AuthError::JwtAuthenticationError(err.to_string()))
-            })?;
-           
-            let _= redis_service.set_session(&sid, &id_user.to_string()).await;
+    Ok(HttpResponse::Ok().json(json!({"token": token})))
 
-            Ok(HttpResponse::Ok().json(json!({"token": token})))
-        }
-        Err(err) => {
-            return Err(CustomError::AuthenticationError(
-                AuthError::OtherAuthenticationError(err.to_string()),
-            ));
-        }
-    }
 }
 
 /******************************************/
@@ -147,21 +137,22 @@ pub async fn view_user(
 
     // Parse the session ID string into a UUID
     let user_id = Uuid::parse_str(&user_id_str).map_err(|_| {
-        CustomError::AuthenticationError(AuthError::SessionAuthenticationError(
-            "Invalid session ID".to_string(),
+        CustomError::AuthenticationError(AuthError::InvalidSession(
+            anyhow::anyhow!("Invalid session ID".to_string()),
         ))
     })?;
 
     let mut conn = pool
         .get()
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
+        .context("Failed to fetch connection from pool")?;
 
     let user: UserResponse = users
         .filter(id.eq(user_id))
         .select(UserResponse::as_select())
         .first::<UserResponse>(&mut conn)
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::QueryBuilderError(err.to_string())))?;
+        .map_err(|err| db_errors::DbError(err))? 
+        .into();
     Ok(HttpResponse::Ok().json(user))
 }

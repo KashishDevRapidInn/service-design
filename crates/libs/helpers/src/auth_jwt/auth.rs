@@ -26,7 +26,7 @@ pub enum Role {
 /******************************************/
 pub fn create_jwt(user_id: &str, role: Role) -> Result<(String, String), anyhow::Error> {
     let config = configuration::Settings::new()
-        .context("Failed to get config")?;
+        .context("Failed to get config")?;    
     let expiration_time = (Utc::now() + Duration::hours(1)).timestamp() as usize;
     let issued_at = Utc::now().timestamp() as usize;
     let not_before = issued_at + 10;
@@ -46,7 +46,7 @@ pub fn create_jwt(user_id: &str, role: Role) -> Result<(String, String), anyhow:
     // encode(&Header::default(), &claims, &encoding_key).map_err(|err| err.to_string())
     let token = encode(&Header::default(), &claims, &encoding_key)
         .context("Failed to encode jwt")?;
-    
+        
     Ok((token, sid))
 }
 
@@ -79,6 +79,3 @@ pub fn verify_jwt(token: &str) -> Result<Claims, String> {
     let sid = &token_data.claims.sid;
     Ok(token_data.claims)
 }
-
-
-//sid 

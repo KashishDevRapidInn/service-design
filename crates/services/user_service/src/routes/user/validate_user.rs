@@ -1,6 +1,7 @@
+use actix_web::http::StatusCode;
 use anyhow::Context;
 use lib_config::db::db::PgPool;
-use errors::{AuthError, CustomError, DbError};
+use errors::{AuthError, CustomError};
 use helpers::validations::validations::LoginUserBody;
 use crate::schema::users::dsl::*;
 use utils::telemetry::spawn_blocking_with_tracing;
@@ -33,19 +34,21 @@ async fn get_stored_credentials(
                 (id_user, hash_password)
             } else {
                 return Err(CustomError::AuthenticationError(
-                    AuthError::OtherAuthenticationError("Invalid username or password".to_string()),
+                    AuthError::InvalidCredentials(anyhow::anyhow!("Invalid username or password")),
                 ));
             }
         }
         Ok(None) => {
             return Err(CustomError::AuthenticationError(
-                AuthError::OtherAuthenticationError("Invalid username or password".to_string()),
-            ));
+                AuthError::InvalidCredentials(anyhow::anyhow!("Invalid username or password"))),
+            )
         }
         Err(err) => {
-            return Err(CustomError::DatabaseError(DbError::QueryBuilderError(
-                err.to_string(),
-            )))
+            return Err(CustomError::DatabaseError {
+                msg: "Error querying the database".to_string(),
+                resp: err.to_string(),
+                status_code: StatusCode::INTERNAL_SERVER_ERROR,
+            });
         }
     };
     Ok((id_user, expected_hash_password))
@@ -66,8 +69,7 @@ pub async fn validate_credentials(
     req_login: &LoginUserBody,
 ) -> Result<Uuid, CustomError> {
     let (user_id, stored_password_hash) = get_stored_credentials(&req_login.email, pool)
-        .await
-        .map_err(|err| CustomError::ValidationError(err.to_string()))?;
+        .await?;
 
     let entered_pasword = req_login.password.to_owned();
     let is_valid = spawn_blocking_with_tracing(move || {
@@ -79,7 +81,7 @@ pub async fn validate_credentials(
         return Ok(user_id);
     } else {
         return Err(CustomError::AuthenticationError(
-            AuthError::JwtAuthenticationError("Invalid credentials".to_string()),
+            AuthError::InvalidCredentials(anyhow::anyhow!("Invalid credentials")),
         ));
     }
 }
