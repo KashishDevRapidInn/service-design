@@ -32,3 +32,5 @@ futures = "0.3.31"
 rdkafka = "0.37.0"
 elasticsearch = "8.17.0-alpha.1"
 reqwest = { version = "0.11", features = ["blocking", "rustls", "json"] } 
+anyhow = { workspace = true }
+thiserror = "1.0.64"
