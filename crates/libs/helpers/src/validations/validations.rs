@@ -15,7 +15,7 @@ impl UserName {
         let contains_forbidden_characters = s.chars().any(|c| forbidden_characters.contains(&c));
 
         if is_empty_or_whitespace || is_too_long || contains_forbidden_characters {
-            Err(CustomError::ValidationError(format!("{} is not a valid subscriber name", s)))
+            Err(CustomError::ValidationError(format!("{} is not a valid name", s)))
         } else {
             Ok(Self(s))
         }

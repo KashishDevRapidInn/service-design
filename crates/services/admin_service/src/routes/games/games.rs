@@ -3,11 +3,11 @@ use flume::Sender;
 use kafka::channel::{push_to_broker, KafkaMessage};
 use helpers::auth_jwt::auth::Claims;
 use lib_config::db::db::PgPool;
-use errors::{AuthError, CustomError, DbError};
-use actix_web::{web, HttpResponse};
+use errors::{AuthError, CustomError};
+use actix_web::{http::StatusCode, web, HttpResponse};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
-use crate::routes::games::models::{Game, CreateGameBody, UpdateGameBody};
+use crate::{db_error::DbError, routes::games::models::{CreateGameBody, Game, UpdateGameBody}};
 use uuid::Uuid;
 use tracing::instrument;
 use crate::schema::games::dsl::*;
@@ -39,7 +39,7 @@ pub async fn create_game(
     let mut conn = pool
         .get()
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
+        .context("Failed to get connection from pool")?;
     let admin_id= admin.into_inner().sid;
     let admin_id= Uuid::parse_str(&admin_id).map_err(|err| {
         CustomError::ValidationError(format!("Invalid admin ID format: {}", err))
@@ -59,12 +59,14 @@ pub async fn create_game(
         .values(&new_game)
         .execute(&mut conn)
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::QueryBuilderError(err.to_string())))?;
+        .map_err(DbError)?;
 
     if result == 0 {
-        return Err(CustomError::DatabaseError(DbError::InsertionError(
-            "Failed to insert game data".to_string(),
-        )));
+        return Err(CustomError::DatabaseError{
+            msg: "Failed to insert user to table admins".into(),
+            resp: "Failed to create admin".into(),
+            status_code: StatusCode::INTERNAL_SERVER_ERROR
+        });
     }
 
     let message = KafkaGameMessage::Create(&new_game);
@@ -89,20 +91,15 @@ pub async fn get_game(
     let mut conn = pool
         .get()
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
+        .context("Failed to get connection from pool")?;
 
     let game_slug = game_slug.into_inner();
-    
-    let mut conn = pool
-        .get()
-        .await
-        .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
 
     let game: Game = games
         .filter(slug.eq(game_slug))
         .first(&mut conn)
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::QueryBuilderError(err.to_string())))?;
+        .map_err(DbError)?;
 
     Ok(HttpResponse::Ok().json(game))
 }
@@ -126,13 +123,13 @@ pub async fn update_game(
     let mut conn = pool
         .get()
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
+        .context("Failed to get connection from pool")?;
 
     let mut game: Game = games
         .filter(slug.eq(&game_slug))
         .first(&mut conn)
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::QueryBuilderError(err.to_string())))?;
+        .map_err(DbError)?;
 
 
     if let Some(new_title) = updated_data.title.clone() {
@@ -150,7 +147,7 @@ pub async fn update_game(
         .set(&game)
         .execute(&mut conn)
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::QueryBuilderError(err.to_string())))?;
+        .map_err(DbError)?;
     
     let message = KafkaGameMessage::Update { slug: &game_slug, changes: &updated_data };
     let _ = push_to_broker(&kafka_producer, &message)
@@ -177,18 +174,20 @@ pub async fn delete_game(
     let mut conn = pool
         .get()
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
+        .context("Failed to get connection from pool")?;
 
     
     let rows_deleted = diesel::delete(games.filter(slug.eq(&game_slug)))
         .execute(&mut conn)
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::QueryBuilderError(err.to_string())))?;
+        .map_err(DbError)?;
 
     if rows_deleted == 0 {
-        return Err(CustomError::DatabaseError(DbError::Other(
-            "No game found with the given slug".to_string(),
-        )));
+        return Err(CustomError::DatabaseError{
+            msg: "rows_deleted == 0".into(),
+            resp: "Did not find game for deletion".into(),
+            status_code: StatusCode::NOT_FOUND
+        });
     }
     let message = KafkaGameMessage::Delete(&game_slug);
     let _ = push_to_broker(&kafka_producer, &message)

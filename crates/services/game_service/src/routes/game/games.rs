@@ -1,6 +1,6 @@
 use helpers::auth_jwt::auth::Claims;
 use lib_config::db::db::PgPool;
-use errors::{AuthError, CustomError, DbError};
+use errors::{AuthError, CustomError};
 use crate::kafka_handler::ReceivedGame;
 use crate::schema::users::dsl::*;
 use crate::schema::rate_game::dsl::*;
@@ -15,9 +15,9 @@ use tracing::instrument;
 use chrono::Utc;
 use crate::elasticsearch::ElasticsearchGame;
 use elasticsearch::{Elasticsearch, SearchParts};
-
+use anyhow::Context;
 use super::model::Paginate;
-
+use  crate::db_error;
 /******************************************/
 // Rate game Route
 /******************************************/
@@ -43,7 +43,7 @@ pub async fn rate(
     let mut conn = pool
         .get()
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
+        .context("Failed to fetch connection from pool")?;
 
     let rate_game_req = rate_game_req.into_inner();
     let slug = rate_game_req.game_slug;
@@ -55,10 +55,12 @@ pub async fn rate(
         return Err(CustomError::ValidationError("Rating must be between 1 and 5.".to_string()));
     }
     let id_user = Uuid::parse_str(&id_user).map_err(|_| {
-        CustomError::AuthenticationError(AuthError::SessionAuthenticationError(
-            "Invalid user ID".to_string(),
+        CustomError::AuthenticationError(AuthError::InvalidSession(
+            anyhow::anyhow!("Invalid session ID".to_string()),
         ))
     })?;
+    tracing::info!("User id: {}", id_user);
+
     let new_rate_game = RateGame {
         id: uuid::Uuid::new_v4(),
         game_slug: slug.clone(),
@@ -72,15 +74,19 @@ pub async fn rate(
         .values(&new_rate_game)
         .execute(&mut conn)
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::InsertionError(err.to_string())))?;
+        .map_err(|err| db_error::DbError(err))?;
 
-    let new_game= get_game_by_slug(&slug, pool_ref).await.map_err(|err|CustomError::DatabaseError(DbError::Other(err.to_string())))?;
+    let new_game= get_game_by_slug(&slug, pool_ref)
+    .await?;
+
     let es_game = ElasticsearchGame::new(&new_game);
     let current_game = elastic_client
         .get(elasticsearch::GetParts::IndexId("rate", &es_game.slug))
         .send()
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::Other(err.to_string())))?;
+        .map_err(|err| 
+            CustomError::UnexpectedError(anyhow::anyhow!("Failed to retrieve game data").into())
+        )?;
 
         let json_response = current_game.json::<serde_json::Value>().await.ok();
         
@@ -140,16 +146,24 @@ pub async fn get_game(
         }))
         .send()
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::Other(err.to_string())))?;
+        .map_err(|err| {
+            tracing::error!("Failed to fetch game data Elasticsearch response: {:?}", err);
+            CustomError::UnexpectedError(anyhow::anyhow!("Failed to get response from elasticsearch").into())
+        })?;
 
     let response_json = response.json::<serde_json::Value>()
         .await
-        .map_err(|err| CustomError::DatabaseError(DbError::Other(err.to_string())))?;
+        .map_err(|err| {
+            tracing::error!("Failed to parse Elasticsearch response: {:?}", err);
+            CustomError::UnexpectedError(anyhow::anyhow!("Error parsing response").into())
+        })?;
+
+    tracing::info!("{}", response_json.to_string());
 
     let hits = response_json.get("hits")
-        .ok_or(CustomError::DatabaseError(DbError::Other("Did not find outer hits".into())))?
+        .ok_or(CustomError::UnexpectedError(anyhow::anyhow!("Failed to fetch outer hits field").into()))?
         .get("hits")
-        .ok_or(CustomError::DatabaseError(DbError::Other("Did not find inner hits".into())))?;
+        .ok_or(CustomError::UnexpectedError(anyhow::anyhow!("Failed to fetch inner hits field").into()))?;
 
     let ret = match hits {
         serde_json::Value::Array(res_vec) => {
@@ -157,9 +171,9 @@ pub async fn get_game(
                 .map(|res| {
                     let temp = res.get("_source")
                         .ok_or(
-                            CustomError::DatabaseError(DbError::Other(
-                                    "Unexpected result structure: Did not find _source".into()
-                            )
+                            CustomError::UnexpectedError(anyhow::anyhow!(
+                                "Failed to fetch \"_source\" field"
+                            ).into()
                         ));
 
                     temp
@@ -168,7 +182,7 @@ pub async fn get_game(
                     let temp = source.map(|doc| {
                         let game: Result<ElasticsearchGame, serde_json::Error> = serde_json::from_value(doc.clone());
                         game.map_err(|_| {
-                            CustomError::DatabaseError(DbError::Other("Failed to deserialize to ElasticsearchGame".into()))
+                            CustomError::UnexpectedError(anyhow::anyhow!("Failed to deserialize \"_source\"").into())
                         })
                     })?;
 
@@ -180,7 +194,7 @@ pub async fn get_game(
         }
 
         _ => {
-            Err(CustomError::DatabaseError(DbError::Other("Unexpected data structure".into())))
+            Err(CustomError::UnexpectedError(anyhow::anyhow!("Failed to fetch game data").into()))
         }
     }?;
 
@@ -200,14 +214,14 @@ pub async fn get_game_by_slug(
    let mut conn = pool
    .get()
    .await
-   .map_err(|err| CustomError::DatabaseError(DbError::ConnectionError(err.to_string())))?;
+   .context("Failed to fetch connection from pool")?;
 
     use crate::schema::games;
     use crate::schema::games::dsl::*;
     let response= games.filter(games::slug.eq(slug_game))
     .select((ReceivedGame::as_select()))
     .get_result::<ReceivedGame>(&mut conn)
-    .await
-    .map_err(|err| CustomError::DatabaseError(DbError::InsertionError(err.to_string())))?;
+    .await.map_err(|err| db_error::DbError(err))? 
+    .into();
     Ok((response))
 }
