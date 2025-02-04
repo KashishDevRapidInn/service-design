@@ -40,8 +40,8 @@ impl ElasticsearchGame {
                 "title": game.title,
                 "description": game.description,
                 "genre": game.genre,
-                "average_rating": None::<f32>,
-                "rating_count": None::<i32>
+                "average_rating": 0,
+                "rating_count": 0
             }))
             .send()
             .await?;

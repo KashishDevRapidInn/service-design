@@ -59,6 +59,8 @@ pub async fn rate(
             anyhow::anyhow!("Invalid session ID".to_string()),
         ))
     })?;
+    tracing::info!("User id: {}", id_user);
+
     let new_rate_game = RateGame {
         id: uuid::Uuid::new_v4(),
         game_slug: slug.clone(),
@@ -155,6 +157,8 @@ pub async fn get_game(
             tracing::error!("Failed to parse Elasticsearch response: {:?}", err);
             CustomError::UnexpectedError(anyhow::anyhow!("Error parsing response").into())
         })?;
+
+    tracing::info!("{}", response_json.to_string());
 
     let hits = response_json.get("hits")
         .ok_or(CustomError::UnexpectedError(anyhow::anyhow!("Failed to fetch outer hits field").into()))?
