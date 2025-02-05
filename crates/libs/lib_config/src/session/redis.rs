@@ -33,13 +33,19 @@ impl RedisService {
         Ok(user_id)
     }
 
-    pub async fn set_session(&self, session_id: &str, user_id: &str) -> Result<(), CustomError> {
+    pub async fn set_session(&self, session_id: &str, user_id: &str, is_admin: bool) -> Result<(), CustomError> {
         let mut con: Connection = self.get_connection()
             .await
             .context("Failed to get Redis connection")?;
-        con.hset(session_id, "user_id", user_id)
+        if (is_admin){
+            con.hset(session_id, "admin_id", user_id)
             .await
             .context("Failed to set session")?;
+        }else{
+            con.hset(session_id, "user_id", user_id)
+            .await
+            .context("Failed to set session")?;
+        }
         con.expire(session_id, 3600)
             .await
             .context("Failed to set session expiry")?; // Expire after 1 hour
@@ -57,13 +63,19 @@ impl RedisService {
     }
 
     pub async fn get_user_from_session(&self, sid: &String) -> Result<String, CustomError> {
-        let user_id_str = self.get_session(sid.to_string()).await?;
+        let mut con = self.get_connection()
+        .await
+        .context("Failed to get Redis connection")?;
 
-        match user_id_str {
-            Some(id_user) => Ok(id_user),
+        let user_id: Option<String> = con.hget(sid, "user_id").await.ok();
+        let admin_id: Option<String> = con.hget(sid, "admin_id").await.ok();
+
+        match user_id.or(admin_id) {
+            Some(id) => Ok(id),
             None => {
                 Err(AuthError::InvalidSession(anyhow::anyhow!("Failed to get user for session")).into())
             }
         }
+
     }
 }

@@ -25,10 +25,11 @@ use lib_config::session::redis::RedisService;
  * @route   POST /ap1/v1/register
  * @access  Public
  */
-#[instrument(name = "Register a new admin", skip(req_admin, pool), fields(username = %req_admin.username, email = %req_admin.email))]
+#[instrument(name = "Register a new admin", skip(req_admin, pool, redis_service), fields(username = %req_admin.username, email = %req_admin.email))]
 pub async fn register_admin(
     pool: web::Data<PgPool>,
     req_admin: web::Json<CreateUserBody>,
+    redis_service: web::Data<RedisService>
 ) -> Result<HttpResponse, CustomError> {
     let pool = pool.clone();
     let admin_data = req_admin.into_inner();
@@ -66,7 +67,13 @@ pub async fn register_admin(
             status_code: StatusCode::INTERNAL_SERVER_ERROR
         });
     }
-    Ok(HttpResponse::Ok().json("Admin created successfully".to_string()))
+    let (token, sid) = create_jwt(&admin_id.to_string(), Role::User)?;
+    let _= redis_service.set_session(&sid, &admin_id.to_string(), true).await?;
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "message":"Admin created successfully",
+        "token": token
+    })))   
 }
 
 /******************************************/
@@ -86,7 +93,7 @@ pub async fn login_admin(
     let id_admin = validate_credentials(&pool, &req_login.into_inner()).await?;
 
     let (token, sid) = create_jwt(&id_admin.to_string(), Role::Admin)?;
-    redis_service.set_session(&sid, &id_admin.to_string()).await?;
+    redis_service.set_session(&sid, &id_admin.to_string(), true).await?;
     Ok(HttpResponse::Ok().json(json!({"token": token})))
 }
 

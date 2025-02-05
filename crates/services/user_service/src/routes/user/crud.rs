@@ -29,11 +29,12 @@ use super::model::{RegisterUserMessage, User};
  * @route   POST /register
  * @access  Public
  */
-#[instrument(name = "Register a new user", skip(req_user, pool), fields(username = %req_user.username, email = %req_user.email))]
+#[instrument(name = "Register a new user", skip(req_user, pool, redis_service), fields(username = %req_user.username, email = %req_user.email))]
 pub async fn register_user(
     pool: web::Data<PgPool>,
     req_user: web::Json<CreateUserBody>,
-    kafka_producer: web::Data<Sender<KafkaMessage<String>>>
+    kafka_producer: web::Data<Sender<KafkaMessage<String>>>,
+    redis_service: web::Data<RedisService>
 ) -> Result<HttpResponse, CustomError> {
     let pool = pool.clone();
     let user_data = req_user.into_inner();
@@ -67,8 +68,14 @@ pub async fn register_user(
         .into();
 
     let _ = push_to_broker(&kafka_producer, &result).await;
+    
+    let (token, sid) = create_jwt(&user_id.to_string(), Role::User)?;
+    let _= redis_service.set_session(&sid, &user_id.to_string(), false).await?;
 
-    Ok(HttpResponse::Ok().json("User created successfully".to_string()))
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "message":"User created successfully",
+        "token": token
+    })))    
 }
 
 /******************************************/
@@ -89,7 +96,7 @@ pub async fn login_user(
 
     let (token, sid) = create_jwt(&user_id.to_string(), Role::User)?;
     
-    let _= redis_service.set_session(&sid, &user_id.to_string()).await?;
+    let _= redis_service.set_session(&sid, &user_id.to_string(), false).await?;
 
     Ok(HttpResponse::Ok().json(json!({"token": token})))
 
