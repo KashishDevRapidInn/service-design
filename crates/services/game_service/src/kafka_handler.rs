@@ -147,9 +147,6 @@ pub async fn process_kafka_game_message(
                     match message_result {
                         Ok(message) => {
                             match message.event_type {
-                                UserEventType::Login { time } => todo!(),
-                                UserEventType::Logout { time } => todo!(),
-                                UserEventType::Rate { rating, game_slug, time } => todo!(),
                                 UserEventType::Register { username, email, created_at } => {
                                     let user = ReceivedUser{
                                         id: message.user_id,
@@ -159,7 +156,9 @@ pub async fn process_kafka_game_message(
                                     };
                                     let mut conn = pool.get().await.unwrap();
                                     add_user_to_db(user, &mut conn).await;
-                                }
+                                },
+
+                                _ => {}
                             }
                         },
 

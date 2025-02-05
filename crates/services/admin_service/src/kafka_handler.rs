@@ -65,7 +65,10 @@ pub async fn process_kafka_message(
 
                                     if let Err(e) = res {
                                         tracing::error!("Failed to insert user login to user_events table: {:?}", e);
+                                    } else {
+                                        tracing::info!("Inserted user login to user_events table")
                                     }
+                                    
                                 },
                                 UserEventType::Logout { time } => {
                                     use crate::schema::user_events;
@@ -85,6 +88,8 @@ pub async fn process_kafka_message(
 
                                     if let Err(e) = res {
                                         tracing::error!("Failed to insert user logout to user_events table: {:?}", e);
+                                    } else {
+                                        tracing::info!("Inserted user logout to user_events table")
                                     }
                                 },
                                 UserEventType::Rate { rating, game_slug, time } => {
@@ -107,6 +112,8 @@ pub async fn process_kafka_message(
 
                                     if let Err(e) = res {
                                         tracing::error!("Failed to insert user rating to user_events table: {:?}", e);
+                                    } else {
+                                        tracing::info!("Inserted user rating to user_events table")
                                     }
                                 },
                                 UserEventType::Register { username, email, created_at } => {
@@ -161,6 +168,7 @@ async fn add_user_to_db(user: ReceivedUser, conn: &mut AsyncPgConnection) {
 
 #[derive(diesel_derive_enum::DbEnum, Debug)]
 #[ExistingTypePath = "crate::schema::sql_types::UserEventType"]
+#[DbValueStyle = "verbatim"]
 enum DbUserEventType{
     Register,
     Login,

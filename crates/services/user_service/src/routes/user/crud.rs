@@ -1,3 +1,4 @@
+use chrono::{NaiveDateTime, Utc};
 use helpers::auth_jwt::auth::{create_jwt, Claims, Role};
 use flume::Sender;
 use kafka::channel::{push_to_broker, KafkaMessage};
@@ -84,13 +85,22 @@ pub async fn register_user(
 pub async fn login_user(
     pool: web::Data<PgPool>,
     req_login: web::Json<LoginUserBody>,
-    redis_service: web::Data<RedisService>
+    redis_service: web::Data<RedisService>,
+    kafka_producer: web::Data<Sender<KafkaMessage<String>>>
 ) -> Result<HttpResponse, CustomError> {
     let user_id = validate_credentials(&pool, &req_login.into_inner()).await?;
 
     let (token, sid) = create_jwt(&user_id.to_string(), Role::User)?;
     
     let _= redis_service.set_session(&sid, &user_id.to_string()).await?;
+
+    let message = UserEventsMessage{
+        user_id,
+        event_type: UserEventType::Login { time: Utc::now().naive_utc() }
+    };
+    let _ = push_to_broker(&kafka_producer, &message)
+        .await
+        .context("Failed to send message to broker");
 
     Ok(HttpResponse::Ok().json(json!({"token": token})))
 
@@ -107,8 +117,26 @@ pub async fn login_user(
 pub async fn logout_user(
     session: web::Data<RedisService>,
     req: web::ReqData<Claims>,
+    kafka_producer: web::Data<Sender<KafkaMessage<String>>>
 ) -> Result<HttpResponse, CustomError> {
     let session_id= req.into_inner().sid;
+    let user_id = session.get_user_from_session(&session_id).await?;
+
+    let uid = Uuid::parse_str(&user_id).map_err(|_| {
+        CustomError::AuthenticationError(AuthError::InvalidSession(
+            anyhow::anyhow!("Invalid session ID".to_string()),
+        ))
+    })?;
+
+    let message = UserEventsMessage{
+        user_id: uid,
+        event_type: UserEventType::Logout { time: Utc::now().naive_utc() }
+    };
+
+    let _ = push_to_broker(&kafka_producer, &message)
+        .await
+        .context("Failed to send message to broker");
+
     match session.delete_session(&session_id).await {
         Ok(_) => {
             Ok(HttpResponse::Ok().json("Logout successful"))
