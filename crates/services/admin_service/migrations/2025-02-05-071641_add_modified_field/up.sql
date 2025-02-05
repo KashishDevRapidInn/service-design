@@ -1,0 +1,3 @@
+-- Your SQL goes here
+ALTER TABLE users ADD COLUMN modified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+UPDATE users SET modified_at = CURRENT_TIMESTAMP;

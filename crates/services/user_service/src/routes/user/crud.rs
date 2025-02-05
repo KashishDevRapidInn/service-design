@@ -19,7 +19,7 @@ use lib_config::session::redis::RedisService;
 use actix_web::HttpMessage; //for .extensions()
 use anyhow::Context;
 use super::response::UserResponse;
-use super::model::{RegisterUserMessage, User};
+use super::model::{UserMessage, User, KafkaUserMessage};
 
 
 /******************************************/
@@ -56,7 +56,7 @@ pub async fn register_user(
         .hash_password(user_password.as_bytes(), &salt)
         .context("Failed to hash password")?;
 
-    let result: RegisterUserMessage = diesel::insert_into(users)
+    let result: UserMessage = diesel::insert_into(users)
         .values((
             id.eq(user_id),
             username.eq(validated_name.as_ref()),
@@ -68,8 +68,8 @@ pub async fn register_user(
         .await
         .map_err(|err| db_errors::DbError(err))? 
         .into();
-
-    let _ = push_to_broker(&kafka_producer, &result).await;
+    let kafka_message = KafkaUserMessage::Create(result);
+    let _ = push_to_broker(&kafka_producer, &kafka_message).await;
     
     let (token, sid) = create_jwt(&user_id.to_string(), Role::User)?;
     let _= redis_service.set_session(&sid, &user_id.to_string(), false).await?;
@@ -178,7 +178,8 @@ pub async fn update_user(
     pool: web::Data<PgPool>,
     req_update: web::Json<UpdateUserBody>,
     req: web::ReqData<Claims>, 
-    redis_service: web::Data<RedisService>
+    redis_service: web::Data<RedisService>,
+    kafka_producer: web::Data<Sender<KafkaMessage<String>>>
 ) -> Result<HttpResponse, CustomError> {
     let session_id= req.into_inner().sid;
     let user_id_str = redis_service.get_user_from_session(&session_id).await?;
@@ -194,6 +195,10 @@ pub async fn update_user(
         .validate()
         .map_err(|err| CustomError::ValidationError(err.to_string()))?;
 
+    let kafka_message= UpdateUserBody{
+        username: validated_name.as_ref().to_string(),
+        email: validated_email.as_ref().to_string()
+    };
     let mut conn = pool
         .get()
         .await
@@ -211,6 +216,11 @@ pub async fn update_user(
         .map_err(|err| db_errors::DbError(err))?;
     if(result==0){
         tracing::info!("couldn't update {:?}", user_id);
+        return Err(CustomError::UnexpectedError(anyhow::anyhow!("No user found to update").into()));
+
     }
+    let message = KafkaUserMessage::Update { id: user_id, changes: kafka_message };
+
+    let _ = push_to_broker(&kafka_producer, &message).await;
     Ok(HttpResponse::Ok().json(json!({"message": "User updated successfully"})))
 }
