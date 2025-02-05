@@ -64,6 +64,18 @@ impl CreateUserBody {
         Ok((user_name, user_email))
     }
 }
+#[derive(Deserialize)]
+pub struct UpdateUserBody {
+    pub username: String,
+    pub email: String,
+}
+impl UpdateUserBody {
+    pub fn validate(self) -> Result<(UserName, UserEmail), CustomError> {
+        let user_name = UserName::parse(self.username)?;
+        let user_email = UserEmail::parse(self.email)?;
+        Ok((user_name, user_email))
+    }
+}
 
 
 #[derive(Deserialize)]

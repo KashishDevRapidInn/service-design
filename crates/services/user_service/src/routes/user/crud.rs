@@ -6,7 +6,7 @@ use errors::{AuthError, CustomError};
 use crate::db_errors;
 use crate::schema::users::dsl::*;
 use crate::routes::user::validate_user::validate_credentials;
-use helpers::validations::validations::{CreateUserBody, LoginUserBody, generate_random_salt};
+use helpers::validations::validations::{CreateUserBody, LoginUserBody, generate_random_salt, UpdateUserBody};
 use actix_web::{web, HttpResponse, HttpRequest};
 use argon2::{self, Argon2, PasswordHasher};
 use diesel::prelude::*;
@@ -142,7 +142,6 @@ pub async fn view_user(
     let session_id= req.into_inner().sid;
     let user_id_str = redis_service.get_user_from_session(&session_id).await?;
 
-    // Parse the session ID string into a UUID
     let user_id = Uuid::parse_str(&user_id_str).map_err(|_| {
         CustomError::AuthenticationError(AuthError::InvalidSession(
             anyhow::anyhow!("Invalid session ID".to_string()),
@@ -162,4 +161,54 @@ pub async fn view_user(
         .map_err(|err| db_errors::DbError(err))? 
         .into();
     Ok(HttpResponse::Ok().json(user))
+}
+
+
+/******************************************/
+// Update user Route
+/******************************************/
+/**
+ * @route   PUT /user/protected/update
+ * @access  JWT Protected
+ */
+#[instrument(name = "Update user", skip(req_update, pool, redis_service), fields(username = %req_update.username))]
+pub async fn update_user(
+    pool: web::Data<PgPool>,
+    req_update: web::Json<UpdateUserBody>,
+    req: web::ReqData<Claims>, 
+    redis_service: web::Data<RedisService>
+) -> Result<HttpResponse, CustomError> {
+    let session_id= req.into_inner().sid;
+    let user_id_str = redis_service.get_user_from_session(&session_id).await?;
+
+    let user_id = Uuid::parse_str(&user_id_str).map_err(|_| {
+        CustomError::AuthenticationError(AuthError::InvalidSession(
+            anyhow::anyhow!("Invalid session ID".to_string()),
+        ))
+    })?;
+    let pool = pool.clone();
+    let updated_data = req_update.into_inner();
+    let (validated_name, validated_email) = updated_data
+        .validate()
+        .map_err(|err| CustomError::ValidationError(err.to_string()))?;
+
+    let mut conn = pool
+        .get()
+        .await
+        .context("Failed to fetch connection from pool")?;
+    tracing::info!("{:?}", user_id);
+    let result= diesel::update(users
+        .filter(id.eq(user_id)))
+        .set((
+            username.eq(validated_name.as_ref()),
+            email.eq(validated_email.as_ref()),
+            modified_at.eq(chrono::Utc::now().naive_utc()), 
+        ))
+        .execute(&mut conn)
+        .await
+        .map_err(|err| db_errors::DbError(err))?;
+    if(result==0){
+        tracing::info!("couldn't update {:?}", user_id);
+    }
+    Ok(HttpResponse::Ok().json(json!({"message": "User updated successfully"})))
 }

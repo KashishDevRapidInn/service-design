@@ -4,7 +4,7 @@ use lib_config::{config::configuration::Settings, db::db::PgPool};
 // use crate::middleware::jwt_auth_middleware;
 use crate::{kafka_handler::process_kafka_message, routes::{
     health_check::health_check,
-    user::crud::{login_user, logout_user, register_user, view_user}
+    user::crud::{login_user, logout_user, register_user, view_user, update_user}
 }};
 use actix_web::{dev::Server, web, App, HttpServer};
 use actix_web_lab::middleware::from_fn;
@@ -93,6 +93,7 @@ pub async fn run_server(
                     .wrap(from_fn(jwt_auth_middleware::<UserRoleRestrictor>))
                     .route("/view_user", web::get().to(view_user))
                     .route("/logout", web::post().to(logout_user))
+                    .route("/update", web::post().to(update_user))
                 )
             )       
     })

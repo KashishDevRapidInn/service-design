@@ -7,5 +7,6 @@ diesel::table! {
         password_hash -> Varchar,
         email -> Varchar,
         created_at -> Nullable<Timestamp>,
+        modified_at -> Nullable<Timestamp>,
     }
 }
