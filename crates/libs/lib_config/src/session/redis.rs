@@ -29,7 +29,7 @@ impl RedisService {
         let mut con = self.get_connection()
             .await
             .context("Failed to get Redis connection")?;
-        let user_id: Option<String> = con.get(session_id).await.ok();
+        let user_id: Option<String> = con.hget(session_id, "user_id").await.ok();
         Ok(user_id)
     }
 
@@ -37,7 +37,7 @@ impl RedisService {
         let mut con: Connection = self.get_connection()
             .await
             .context("Failed to get Redis connection")?;
-        con.set(session_id, user_id)
+        con.hset(session_id, "user_id", user_id)
             .await
             .context("Failed to set session")?;
         con.expire(session_id, 3600)
@@ -56,7 +56,6 @@ impl RedisService {
         Ok(())
     }
 
-    // Helper function for getting uid from sid
     pub async fn get_user_from_session(&self, sid: &String) -> Result<String, CustomError> {
         let user_id_str = self.get_session(sid.to_string()).await?;
 
