@@ -29,6 +29,11 @@ pub enum UserEventType{
         rating: i32,
         game_slug: String,
         time: Option<NaiveDateTime>
+    },
+
+    Update{
+        username: String,
+        email: String
     }
 }
 

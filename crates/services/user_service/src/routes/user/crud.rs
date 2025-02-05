@@ -219,6 +219,8 @@ pub async fn update_user(
         ))
     })?;
     let pool = pool.clone();
+    let user_email = req_update.email.clone();
+    let user_name = req_update.username.clone();
     let updated_data = req_update.into_inner();
     let (validated_name, validated_email) = updated_data
         .validate()
@@ -247,6 +249,16 @@ pub async fn update_user(
         return Err(CustomError::UnexpectedError(anyhow::anyhow!("No user found to update").into()));
 
     }
+
+    let message = UserEventsMessage{
+        user_id,
+        event_type: UserEventType::Update {
+            username: user_name,
+            email: user_email
+        }
+    };
+
+    let _ = push_to_broker(&kafka_producer, &message).await;
 
     Ok(HttpResponse::Ok().json(json!({"message": "User updated successfully"})))
 }

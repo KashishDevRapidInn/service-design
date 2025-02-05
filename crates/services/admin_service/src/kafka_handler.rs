@@ -125,6 +125,11 @@ pub async fn process_kafka_message(
                                     };
                                     let mut conn = pool.get().await.unwrap();
                                     add_user_to_db(user, &mut conn).await;
+                                },
+
+                                UserEventType::Update { username, email } => {
+                                    let mut conn = pool.get().await.unwrap();
+                                    update_user_info(message.user_id, username, email, &mut conn).await;
                                 }
                             }
                         },
@@ -160,6 +165,25 @@ async fn add_user_to_db(user: ReceivedUser, conn: &mut AsyncPgConnection) {
     match res {
         Ok(_) => tracing::info!("Added user: {:?} to db", user),
         Err(e) => tracing::error!("Failed to add user: {:?}", e),
+    };
+}
+
+#[instrument("Update user info", skip(conn))]
+pub async fn update_user_info(id: Uuid, username: String, email: String, conn: &mut AsyncPgConnection) {
+    use crate::schema::users;
+
+    let res = diesel::update(users::table)
+        .filter(users::id.eq(&id))
+        .set((
+            users::username.eq(&username),
+            users::email.eq(&email)
+        ))
+        .execute(conn)
+        .await;
+
+    match res {
+        Ok(_) => tracing::info!("Update user: {} in db", id),
+        Err(e) => tracing::error!("Failed to update user {} : {}", id, e),
     };
 }
 
