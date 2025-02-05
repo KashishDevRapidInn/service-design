@@ -1,6 +1,7 @@
 use helpers::auth_jwt::auth::{create_jwt, Claims, Role};
 use flume::Sender;
 use kafka::channel::{push_to_broker, KafkaMessage};
+use kafka::models::{UserEventType, UserEventsMessage};
 use lib_config::db::db::PgPool;
 use errors::{AuthError, CustomError};
 use crate::db_errors;
@@ -19,7 +20,7 @@ use lib_config::session::redis::RedisService;
 use actix_web::HttpMessage; //for .extensions()
 use anyhow::Context;
 use super::response::UserResponse;
-use super::model::{RegisterUserMessage, User};
+use super::model::User;
 
 
 /******************************************/
@@ -53,7 +54,7 @@ pub async fn register_user(
         .hash_password(user_password.as_bytes(), &salt)
         .context("Failed to hash password")?;
 
-    let result: RegisterUserMessage = diesel::insert_into(users)
+    let result: UserEventsMessage = diesel::insert_into(users)
         .values((
             id.eq(user_id),
             username.eq(validated_name.as_ref()),

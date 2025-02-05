@@ -1830,6 +1830,7 @@ name = "kafka"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "flume",
  "futures",
  "lib_config",
@@ -1838,6 +1839,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
