@@ -6,7 +6,7 @@ use errors::{AuthError, CustomError};
 use crate::db_errors;
 use crate::schema::users::dsl::*;
 use crate::routes::user::validate_user::validate_credentials;
-use helpers::validations::validations::{CreateUserBody, LoginUserBody, generate_random_salt, UpdateUserBody};
+use helpers::validations::validations::{CreateUserBody, LoginUserBody, generate_random_salt, UpdateUserBody, check_password_strength};
 use actix_web::{web, HttpResponse, HttpRequest};
 use argon2::{self, Argon2, PasswordHasher};
 use diesel::prelude::*;
@@ -42,6 +42,8 @@ pub async fn register_user(
     let (validated_name, validated_email) = user_data
         .validate()
         .map_err(|err| CustomError::ValidationError(err.to_string()))?;
+    let _= check_password_strength(&user_password)?;
+
     let user_id = Uuid::new_v4();
     let mut conn = pool
         .get()
