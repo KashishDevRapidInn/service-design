@@ -1,6 +1,6 @@
 // An extension trait to provide the `graphemes` method on `String` and `&str`
 use unicode_segmentation::UnicodeSegmentation;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use argon2::{self, password_hash::SaltString};
 use errors::CustomError;
 
@@ -64,6 +64,18 @@ impl CreateUserBody {
         Ok((user_name, user_email))
     }
 }
+#[derive(Deserialize, Serialize)]
+pub struct UpdateUserBody {
+    pub username: String,
+    pub email: String,
+}
+impl UpdateUserBody {
+    pub fn validate(self) -> Result<(UserName, UserEmail), CustomError> {
+        let user_name = UserName::parse(self.username)?;
+        let user_email = UserEmail::parse(self.email)?;
+        Ok((user_name, user_email))
+    }
+}
 
 
 #[derive(Deserialize)]
@@ -78,7 +90,29 @@ pub fn generate_random_salt() -> SaltString {
 }
 
 
+pub fn check_password_strength(password: &str) -> Result<(), CustomError> {
+    if password.len() < 8 {
+        return Err(CustomError::ValidationError("Password must be at least 8 characters long".to_string()));
+    }
+    let lower_case_regex = Regex::new(r"[a-z]").map_err(|_| CustomError::ValidationError("Invalid regex".to_string()))?;
+    if !lower_case_regex.is_match(password) {
+        return Err(CustomError::ValidationError("Password must contain at least one lowercase letter.".to_string()));
+    }
+    let upper_case_regex = Regex::new(r"[A-Z]").map_err(|_| CustomError::ValidationError("Invalid regex".to_string()))?;
+    if !upper_case_regex.is_match(password) {
+        return Err(CustomError::ValidationError("Password must contain at least one uppercase letter.".to_string()));
+    }
+    let digit_regex = Regex::new(r"\d").map_err(|_| CustomError::ValidationError("Invalid regex".to_string()))?;
+    if !digit_regex.is_match(password) {
+        return Err(CustomError::ValidationError("Password must contain at least one number.".to_string()));
+    }
+    let special_char_regex = Regex::new(r"[@$!%*?&]").map_err(|_| CustomError::ValidationError("Invalid regex".to_string()))?;
+    if !special_char_regex.is_match(password) {
+        return Err(CustomError::ValidationError("Password must contain at least one special character.".to_string()));
+    }
 
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::{UserEmail, UserName};

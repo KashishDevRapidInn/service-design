@@ -2,10 +2,10 @@ use chrono::NaiveDateTime;
 use diesel::{prelude::Insertable, ExpressionMethods};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use flume::Receiver;
+use futures::StreamExt;
 use kafka::models::{UserEventType, UserEventsMessage};
 use lib_config::db::db::PgPool;
 use rdkafka::message::OwnedMessage;
-use futures::StreamExt;
 use rdkafka::Message;
 use serde::Deserialize;
 use serde_json::json;
@@ -18,12 +18,12 @@ pub struct ReceivedUser {
     pub id: uuid::Uuid,
     pub username: String,
     pub email: String,
-    pub created_at: Option<NaiveDateTime>
+    pub created_at: Option<NaiveDateTime>,
 }
 
 pub async fn process_kafka_message(
     kafka_receiver: Receiver<OwnedMessage>,
-    pool: PgPool 
+    pool: PgPool,
 ) {
     kafka_receiver.stream()
         .for_each_concurrent(Some(10), |msg| {
@@ -117,11 +117,11 @@ pub async fn process_kafka_message(
                                     }
                                 },
                                 UserEventType::Register { username, email, created_at } => {
-                                    let user = ReceivedUser{
+                                    let user = ReceivedUser {
                                         id: message.user_id,
                                         username,
                                         email,
-                                        created_at
+                                        created_at,
                                     };
                                     let mut conn = pool.get().await.unwrap();
                                     add_user_to_db(user, &mut conn).await;
@@ -159,10 +159,7 @@ async fn add_user_to_db(user: ReceivedUser, conn: &mut AsyncPgConnection) {
 
     match res {
         Ok(_) => tracing::info!("Added user: {:?} to db", user),
-        Err(e) => tracing::error!(
-            "Failed to add user: {:?}",
-            e
-        )
+        Err(e) => tracing::error!("Failed to add user: {:?}", e),
     };
 }
 

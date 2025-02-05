@@ -42,7 +42,7 @@ fn diesel_db_response_error(err: &DieselError) -> CustomError{
     };
 
     CustomError::DatabaseError {
-        msg: format!("Database error occured: {}", resp),
+        msg: format!("Database error occured: {:?}", err),
         resp: resp.into(),
         status_code
     }

@@ -12,6 +12,7 @@ pub struct User {
     pub password_hash: String,
     pub email: String,
     pub created_at: Option<NaiveDateTime>,
+    pub modified_at: Option<NaiveDateTime>,
 }
 
 impl From<User> for UserEventsMessage {

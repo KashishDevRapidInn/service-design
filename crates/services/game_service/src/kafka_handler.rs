@@ -46,15 +46,20 @@ pub struct UpdateGameBody {
     pub genre: Option<String>,
 }
 
-#[derive(Deserialize, Insertable, Debug, Clone)]
+#[derive(Deserialize, Insertable, Debug, Serialize, Clone)]
 #[diesel(table_name = crate::schema::users)]
-struct ReceivedUser {
+pub struct ReceivedUser {
     pub id: uuid::Uuid,
     pub username: String,
     pub email: String,
     pub created_at: Option<NaiveDateTime>
 }
 
+#[derive(Deserialize, Serialize, Clone)]
+pub struct UpdateUserBody {
+    pub username: String,
+    pub email: String,
+}
 pub async fn process_kafka_game_message(
     kafka_receiver: Receiver<OwnedMessage>,
     pool: PgPool,
@@ -173,7 +178,6 @@ pub async fn process_kafka_game_message(
                             );
                         }
                     }
-
                 } else {
                     tracing::error!("Handler for topic {} not found", msg.topic());
                 }
@@ -257,7 +261,7 @@ async fn add_user_to_db(user: ReceivedUser, conn: &mut AsyncPgConnection) {
     use crate::schema::users;
 
     let res = diesel::insert_into(users::table)
-        .values(user.clone())
+        .values(&user)
         .execute(conn)
         .await;
 
@@ -266,4 +270,3 @@ async fn add_user_to_db(user: ReceivedUser, conn: &mut AsyncPgConnection) {
         Err(e) => tracing::error!("Failed to add user: {:?}", e),
     };
 }
-
