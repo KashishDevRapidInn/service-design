@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use diesel::prelude::Insertable;
+use diesel::{prelude::Insertable, ExpressionMethods};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use flume::Receiver;
 use kafka::models::{UserEventType, UserEventsMessage};
@@ -8,7 +8,9 @@ use rdkafka::message::OwnedMessage;
 use futures::StreamExt;
 use rdkafka::Message;
 use serde::Deserialize;
+use serde_json::json;
 use tracing::instrument;
+use uuid::Uuid;
 
 #[derive(Deserialize, Insertable, Debug)]
 #[diesel(table_name = crate::schema::users)]
@@ -45,9 +47,68 @@ pub async fn process_kafka_message(
                     match message_result {
                         Ok(message) => {
                             match message.event_type {
-                                UserEventType::Login { time } => todo!(),
-                                UserEventType::Logout { time } => todo!(),
-                                UserEventType::Rate { rating, game_slug, time } => todo!(),
+                                UserEventType::Login { time } => {
+                                    use crate::schema::user_events;
+
+                                    let mut conn = pool.get().await.unwrap();
+                                    let res = diesel::insert_into(user_events::table)
+                                        .values((
+                                            user_events::id.eq(Uuid::new_v4()),
+                                            user_events::user_id.eq(message.user_id),
+                                            user_events::event_type.eq(DbUserEventType::Login),
+                                            user_events::data.eq(json!({
+                                                "time": time
+                                            }))
+                                        ))
+                                        .execute(&mut conn)
+                                        .await;
+
+                                    if let Err(e) = res {
+                                        tracing::error!("Failed to insert user login to user_events table: {:?}", e);
+                                    }
+                                },
+                                UserEventType::Logout { time } => {
+                                    use crate::schema::user_events;
+
+                                    let mut conn = pool.get().await.unwrap();
+                                    let res = diesel::insert_into(user_events::table)
+                                        .values((
+                                            user_events::id.eq(Uuid::new_v4()),
+                                            user_events::user_id.eq(message.user_id),
+                                            user_events::event_type.eq(DbUserEventType::Logout),
+                                            user_events::data.eq(json!({
+                                                "time": time
+                                            }))
+                                        ))
+                                        .execute(&mut conn)
+                                        .await;
+
+                                    if let Err(e) = res {
+                                        tracing::error!("Failed to insert user logout to user_events table: {:?}", e);
+                                    }
+                                },
+                                UserEventType::Rate { rating, game_slug, time } => {
+                                    use crate::schema::user_events;
+
+                                    let mut conn = pool.get().await.unwrap();
+                                    let res = diesel::insert_into(user_events::table)
+                                        .values((
+                                            user_events::id.eq(Uuid::new_v4()),
+                                            user_events::user_id.eq(message.user_id),
+                                            user_events::event_type.eq(DbUserEventType::Rate),
+                                            user_events::data.eq(json!({
+                                                "rating": rating,
+                                                "game_slug": game_slug,
+                                                "time": time
+                                            }))
+                                        ))
+                                        .execute(&mut conn)
+                                        .await;
+
+                                    if let Err(e) = res {
+                                        tracing::error!("Failed to insert user rating to user_events table: {:?}", e);
+                                    }
+                                },
                                 UserEventType::Register { username, email, created_at } => {
                                     let user = ReceivedUser{
                                         id: message.user_id,
@@ -97,3 +158,13 @@ async fn add_user_to_db(user: ReceivedUser, conn: &mut AsyncPgConnection) {
         )
     };
 }
+
+#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[ExistingTypePath = "crate::schema::sql_types::UserEventType"]
+enum DbUserEventType{
+    Register,
+    Login,
+    Logout,
+    Rate,
+    Update
+} 
