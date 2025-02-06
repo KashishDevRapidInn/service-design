@@ -3,6 +3,7 @@ use flume::Sender;
 use kafka::channel::{push_to_broker, KafkaMessage};
 use lib_config::db::db::PgPool;
 use errors::{AuthError, CustomError};
+use serde::Deserialize;
 use crate::db_errors;
 use crate::schema::users::dsl::*;
 use crate::routes::user::validate_user::validate_credentials;
@@ -19,8 +20,11 @@ use lib_config::session::redis::RedisService;
 use actix_web::HttpMessage; //for .extensions()
 use anyhow::Context;
 use super::response::UserResponse;
-use super::model::{UserMessage, User, KafkaUserMessage};
-
+use super::model::{UserMessage, User, KafkaUserMessage, EmailVerification};
+use lib_config::send_mail::send::send_email;
+use helpers::validations::mail_token::generate_token;
+use chrono::{Utc, Duration};
+use crate::schema::email_verifications::dsl as email_verification_dsl;
 
 /******************************************/
 // Registering user Route
@@ -74,6 +78,24 @@ pub async fn register_user(
     let (token, sid) = create_jwt(&user_id.to_string(), Role::User)?;
     let _= redis_service.set_session(&sid, &user_id.to_string(), false).await?;
 
+    let mail_token = generate_token();
+    let expires_at = Utc::now() + Duration::hours(24); // 24 hours
+
+    diesel::insert_into(email_verification_dsl::email_verifications)
+        .values((
+            email_verification_dsl::token.eq(&mail_token),
+            email_verification_dsl::user_id.eq(&user_id),
+            email_verification_dsl::expires_at.eq(&expires_at.naive_utc()),
+            email_verification_dsl::status.eq("pending")
+        ))
+        .execute(&mut conn)
+        .await
+        .map_err(|err| db_errors::DbError(err))?;
+    
+    send_email(
+            validated_email.as_ref(),
+            mail_token
+        ).await?;
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "message":"User created successfully",
         "token": token
@@ -190,7 +212,7 @@ pub async fn update_user(
         ))
     })?;
     let pool = pool.clone();
-    let updated_data = req_update.into_inner();
+    let updated_data: UpdateUserBody = req_update.into_inner();
     let (validated_name, validated_email) = updated_data
         .validate()
         .map_err(|err| CustomError::ValidationError(err.to_string()))?;
@@ -224,3 +246,56 @@ pub async fn update_user(
     let _ = push_to_broker(&kafka_producer, &message).await;
     Ok(HttpResponse::Ok().json(json!({"message": "User updated successfully"})))
 }
+#[derive(Deserialize)]
+pub struct MailQuery{
+    token: String
+}
+#[instrument(name = "Verify user email", skip(pool, query))]
+pub async fn verify_email(
+    pool: web::Data<PgPool>,
+    query: web::Query<MailQuery>
+) -> Result<HttpResponse, CustomError> {
+    let query: MailQuery = query.into_inner();
+    let token = query.token;
+
+    let mut conn = pool
+        .get()
+        .await
+        .context("Failed to fetch connection from pool")?;
+
+    tracing::info!("token: {}", token);
+    let verification_record: Option<EmailVerification>= email_verification_dsl::email_verifications
+        .filter(email_verification_dsl::token.eq(token.clone()))
+        .filter(email_verification_dsl::expires_at.gt(Utc::now().naive_utc()))
+        .filter(email_verification_dsl::status.eq("pending"))
+        .select(EmailVerification::as_select())
+        .first::<EmailVerification>(&mut conn)
+        .await
+        .optional()
+        .map_err(|err| db_errors::DbError(err))?;
+
+    if verification_record.is_none() {
+        return Err(CustomError::UnexpectedError(anyhow::anyhow!("Invalid or expired token".to_string())));
+    }
+
+    let _ = diesel::update(email_verification_dsl::email_verifications)
+        .filter(email_verification_dsl::token.eq(token))
+        .set(email_verification_dsl::status.eq("verified"))
+        .execute(&mut conn)
+        .await
+        .map_err(|err| db_errors::DbError(err))?;
+
+    // let user_id = verification_record.unwrap().user_id;
+
+    // let _ = diesel::update(users)
+    //     .filter(users::id.eq(user_id))
+    //     .set(users::email_verified.eq(true))
+    //     .execute(&mut conn)
+    //     .await
+    //     .map_err(|err| db_errors::DbError(err))?;
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "message": "Email successfully verified"
+    })))
+}
+
