@@ -70,7 +70,7 @@ pub async fn register_admin(
     let (token, sid) = create_jwt(&admin_id.to_string(), Role::User)?;
     let _= redis_service.set_session(&sid, &admin_id.to_string(), true).await?;
 
-    Ok(HttpResponse::Ok().json(serde_json::json!({
+    Ok(HttpResponse::Created().json(serde_json::json!({
         "message":"Admin created successfully",
         "token": token
     })))   

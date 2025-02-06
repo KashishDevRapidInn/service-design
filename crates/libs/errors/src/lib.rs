@@ -3,6 +3,7 @@ use std::error::Error;
 use actix_web::http::StatusCode;
 use actix_web::HttpResponseBuilder;
 use actix_web::{HttpResponse, ResponseError};
+use serde_json::json;
 use thiserror::Error;
 
 #[derive(Error)]
@@ -36,7 +37,10 @@ impl ResponseError for CustomError {
     fn error_response(&self) -> HttpResponse {
         match self {
             CustomError::ValidationError(_) => HttpResponse::BadRequest().body(self.to_string()),
-            CustomError::DatabaseError{status_code, resp, ..} => HttpResponseBuilder::new(*status_code).body(resp.clone()),
+            CustomError::DatabaseError{status_code, resp, ..} => HttpResponseBuilder::new(*status_code).json(json!({
+                "status": "Failure",
+                "message": resp
+            })),
             CustomError::AuthenticationError(_) => HttpResponse::Unauthorized().body(self.to_string()),
             CustomError::UnexpectedError(_) => HttpResponse::InternalServerError().body(self.to_string())
         }

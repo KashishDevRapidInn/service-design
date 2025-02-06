@@ -76,7 +76,7 @@ pub async fn register_user(
     let (token, sid) = create_jwt(&user_id.to_string(), Role::User)?;
     let _= redis_service.set_session(&sid, &user_id.to_string(), false).await?;
 
-    Ok(HttpResponse::Ok().json(serde_json::json!({
+    Ok(HttpResponse::Created().json(serde_json::json!({
         "message":"User created successfully",
         "token": token
     })))    
