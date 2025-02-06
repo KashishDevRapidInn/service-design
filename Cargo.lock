@@ -281,6 +281,7 @@ dependencies = [
  "config",
  "diesel",
  "diesel-async",
+ "diesel-derive-enum",
  "dotenv",
  "errors",
  "flume",
@@ -927,6 +928,7 @@ dependencies = [
  "itoa",
  "pq-sys",
  "r2d2",
+ "serde_json",
  "uuid",
 ]
 
@@ -1848,6 +1850,7 @@ name = "kafka"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "flume",
  "futures",
  "lib_config",
@@ -1856,6 +1859,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

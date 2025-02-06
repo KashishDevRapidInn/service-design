@@ -1,6 +1,8 @@
+use chrono::{NaiveDateTime, Utc};
 use helpers::auth_jwt::auth::{create_jwt, Claims, Role};
 use flume::Sender;
 use kafka::channel::{push_to_broker, KafkaMessage};
+use kafka::models::{UserEventType, UserEventsMessage};
 use lib_config::db::db::PgPool;
 use errors::{AuthError, CustomError};
 use serde::Deserialize;
@@ -20,10 +22,10 @@ use lib_config::session::redis::RedisService;
 use actix_web::HttpMessage; //for .extensions()
 use anyhow::Context;
 use super::response::UserResponse;
-use super::model::{UserMessage, User, KafkaUserMessage, EmailVerification};
+use super::model::{User, EmailVerification};
 use lib_config::send_mail::send::send_email;
 use helpers::validations::mail_token::generate_token;
-use chrono::{Utc, Duration};
+use chrono::Duration;
 use crate::schema::email_verifications::dsl as email_verification_dsl;
 
 /******************************************/
@@ -60,7 +62,7 @@ pub async fn register_user(
         .hash_password(user_password.as_bytes(), &salt)
         .context("Failed to hash password")?;
 
-    let result: UserMessage = diesel::insert_into(users)
+    let result: UserEventsMessage = diesel::insert_into(users)
         .values((
             id.eq(user_id),
             username.eq(validated_name.as_ref()),
@@ -72,8 +74,8 @@ pub async fn register_user(
         .await
         .map_err(|err| db_errors::DbError(err))? 
         .into();
-    let kafka_message = KafkaUserMessage::Create(result);
-    let _ = push_to_broker(&kafka_producer, &kafka_message).await;
+
+    let _ = push_to_broker(&kafka_producer, &result).await;
     
     let (token, sid) = create_jwt(&user_id.to_string(), Role::User)?;
     let _= redis_service.set_session(&sid, &user_id.to_string(), false).await?;
@@ -114,13 +116,22 @@ pub async fn register_user(
 pub async fn login_user(
     pool: web::Data<PgPool>,
     req_login: web::Json<LoginUserBody>,
-    redis_service: web::Data<RedisService>
+    redis_service: web::Data<RedisService>,
+    kafka_producer: web::Data<Sender<KafkaMessage<String>>>
 ) -> Result<HttpResponse, CustomError> {
     let user_id = validate_credentials(&pool, &req_login.into_inner()).await?;
 
     let (token, sid) = create_jwt(&user_id.to_string(), Role::User)?;
     
     let _= redis_service.set_session(&sid, &user_id.to_string(), false).await?;
+
+    let message = UserEventsMessage{
+        user_id,
+        event_type: UserEventType::Login { time: Utc::now().naive_utc() }
+    };
+    let _ = push_to_broker(&kafka_producer, &message)
+        .await
+        .context("Failed to send message to broker");
 
     Ok(HttpResponse::Ok().json(json!({"token": token})))
 
@@ -137,8 +148,26 @@ pub async fn login_user(
 pub async fn logout_user(
     session: web::Data<RedisService>,
     req: web::ReqData<Claims>,
+    kafka_producer: web::Data<Sender<KafkaMessage<String>>>
 ) -> Result<HttpResponse, CustomError> {
     let session_id= req.into_inner().sid;
+    let user_id = session.get_user_from_session(&session_id).await?;
+
+    let uid = Uuid::parse_str(&user_id).map_err(|_| {
+        CustomError::AuthenticationError(AuthError::InvalidSession(
+            anyhow::anyhow!("Invalid session ID".to_string()),
+        ))
+    })?;
+
+    let message = UserEventsMessage{
+        user_id: uid,
+        event_type: UserEventType::Logout { time: Utc::now().naive_utc() }
+    };
+
+    let _ = push_to_broker(&kafka_producer, &message)
+        .await
+        .context("Failed to send message to broker");
+
     match session.delete_session(&session_id).await {
         Ok(_) => {
             Ok(HttpResponse::Ok().json("Logout successful"))
@@ -212,20 +241,20 @@ pub async fn update_user(
         ))
     })?;
     let pool = pool.clone();
-    let updated_data: UpdateUserBody = req_update.into_inner();
+    let user_email = req_update.email.clone();
+    let user_name = req_update.username.clone();
+    let updated_data = req_update.into_inner();
     let (validated_name, validated_email) = updated_data
         .validate()
         .map_err(|err| CustomError::ValidationError(err.to_string()))?;
 
-    let kafka_message= UpdateUserBody{
-        username: validated_name.as_ref().to_string(),
-        email: validated_email.as_ref().to_string()
-    };
     let mut conn = pool
         .get()
         .await
         .context("Failed to fetch connection from pool")?;
+
     tracing::info!("{:?}", user_id);
+
     let result= diesel::update(users
         .filter(id.eq(user_id)))
         .set((
@@ -236,14 +265,23 @@ pub async fn update_user(
         .execute(&mut conn)
         .await
         .map_err(|err| db_errors::DbError(err))?;
-    if(result==0){
+
+    if(result == 0){
         tracing::info!("couldn't update {:?}", user_id);
         return Err(CustomError::UnexpectedError(anyhow::anyhow!("No user found to update").into()));
 
     }
-    let message = KafkaUserMessage::Update { id: user_id, changes: kafka_message };
+
+    let message = UserEventsMessage{
+        user_id,
+        event_type: UserEventType::Update {
+            username: user_name,
+            email: user_email
+        }
+    };
 
     let _ = push_to_broker(&kafka_producer, &message).await;
+
     Ok(HttpResponse::Ok().json(json!({"message": "User updated successfully"})))
 }
 #[derive(Deserialize)]

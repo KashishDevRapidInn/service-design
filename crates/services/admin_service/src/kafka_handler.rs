@@ -1,96 +1,164 @@
 use chrono::NaiveDateTime;
-use diesel::prelude::{Insertable};
+use diesel::{prelude::Insertable, ExpressionMethods};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use flume::Receiver;
+use futures::StreamExt;
+use kafka::models::{UserEventType, UserEventsMessage};
 use lib_config::db::db::PgPool;
 use rdkafka::message::OwnedMessage;
 use rdkafka::Message;
-use futures::StreamExt;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde_json::json;
 use tracing::instrument;
-use diesel::prelude::*;
-#[derive(Deserialize, Insertable, Debug, Serialize, Clone)]
+use uuid::Uuid;
+
+#[derive(Deserialize, Insertable, Debug)]
 #[diesel(table_name = crate::schema::users)]
-pub struct UserMessage {
+pub struct ReceivedUser {
     pub id: uuid::Uuid,
     pub username: String,
     pub email: String,
     pub created_at: Option<NaiveDateTime>,
-    pub modified_at: Option<NaiveDateTime>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub enum KafkaUserMessage{
-    Create(UserMessage),
-    Update {
-        id: uuid::Uuid,
-        changes: UpdateUserBody,
-    },
-}
-#[derive(Deserialize, Serialize, Clone)]
-pub struct UpdateUserBody {
-    pub username: String,
-    pub email: String,
 }
 
 pub async fn process_kafka_message(
     kafka_receiver: Receiver<OwnedMessage>,
     pool: PgPool,
 ) {
-    kafka_receiver.stream().for_each_concurrent(Some(10), |msg| {
-        let pool = pool.clone();
-        async move {
-            if msg.topic() == "user_events" {
-                let payload = match msg.payload() {
-                    Some(p) => p,
-                    None => {
-                        tracing::error!(
-                            "No payload found in message. Topic: {}, Partition: {}, Offset: {}",
-                            msg.topic(),
-                            msg.partition(),
-                            msg.offset()
-                        );
-                        return;
-                    }
-                };
+    kafka_receiver.stream()
+        .for_each_concurrent(Some(10), |msg| {
+            let pool = pool.clone();
+            async move {
+                if msg.topic() == "user_events" {
+                    let payload = match msg.payload() {
+                        Some(p) => p,
+                        None => {
+                            tracing::error!(
+                                "No payload found in message. Topic: {}, Partition: {}, Offset: {}",
+                                msg.topic(),
+                                msg.partition(),
+                                msg.offset()
+                            );
+                            return
+                        }
+                    };
+                    let message_result = serde_json::from_slice::<UserEventsMessage>(payload);
+                    
+                    match message_result {
+                        Ok(message) => {
+                            match message.event_type {
+                                UserEventType::Login { time } => {
+                                    use crate::schema::user_events;
 
-                let user_message_result: Result<KafkaUserMessage, _> =
-                    serde_json::from_slice(payload);
+                                    let mut conn = pool.get().await.unwrap();
+                                    let res = diesel::insert_into(user_events::table)
+                                        .values((
+                                            user_events::id.eq(Uuid::new_v4()),
+                                            user_events::user_id.eq(message.user_id),
+                                            user_events::event_type.eq(DbUserEventType::Login),
+                                            user_events::data.eq(json!({
+                                                "time": time
+                                            }))
+                                        ))
+                                        .execute(&mut conn)
+                                        .await;
 
-                match user_message_result {
-                    Ok(KafkaUserMessage::Create(user)) => {
-                        let mut conn = pool.get().await.unwrap();
-                        add_user_to_db(user, &mut conn).await;
+                                    if let Err(e) = res {
+                                        tracing::error!("Failed to insert user login to user_events table: {:?}", e);
+                                    } else {
+                                        tracing::info!("Inserted user login to user_events table")
+                                    }
+                                    
+                                },
+                                UserEventType::Logout { time } => {
+                                    use crate::schema::user_events;
+
+                                    let mut conn = pool.get().await.unwrap();
+                                    let res = diesel::insert_into(user_events::table)
+                                        .values((
+                                            user_events::id.eq(Uuid::new_v4()),
+                                            user_events::user_id.eq(message.user_id),
+                                            user_events::event_type.eq(DbUserEventType::Logout),
+                                            user_events::data.eq(json!({
+                                                "time": time
+                                            }))
+                                        ))
+                                        .execute(&mut conn)
+                                        .await;
+
+                                    if let Err(e) = res {
+                                        tracing::error!("Failed to insert user logout to user_events table: {:?}", e);
+                                    } else {
+                                        tracing::info!("Inserted user logout to user_events table")
+                                    }
+                                },
+                                UserEventType::Rate { rating, game_slug, time } => {
+                                    use crate::schema::user_events;
+
+                                    let mut conn = pool.get().await.unwrap();
+                                    let res = diesel::insert_into(user_events::table)
+                                        .values((
+                                            user_events::id.eq(Uuid::new_v4()),
+                                            user_events::user_id.eq(message.user_id),
+                                            user_events::event_type.eq(DbUserEventType::Rate),
+                                            user_events::data.eq(json!({
+                                                "rating": rating,
+                                                "game_slug": game_slug,
+                                                "time": time
+                                            }))
+                                        ))
+                                        .execute(&mut conn)
+                                        .await;
+
+                                    if let Err(e) = res {
+                                        tracing::error!("Failed to insert user rating to user_events table: {:?}", e);
+                                    } else {
+                                        tracing::info!("Inserted user rating to user_events table")
+                                    }
+                                },
+                                UserEventType::Register { username, email, created_at } => {
+                                    let user = ReceivedUser {
+                                        id: message.user_id,
+                                        username,
+                                        email,
+                                        created_at,
+                                    };
+                                    let mut conn = pool.get().await.unwrap();
+                                    add_user_to_db(user, &mut conn).await;
+                                },
+
+                                UserEventType::Update { username, email } => {
+                                    let mut conn = pool.get().await.unwrap();
+                                    update_user_info(message.user_id, username, email, &mut conn).await;
+                                }
+                            }
+                        },
+
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to deserialize message to user
+                                Topic: {}, Partition: {}, Offset: {} | Error: {:?}",
+                                msg.topic(),
+                                msg.partition(),
+                                msg.offset(),
+                                e
+                            );
+                        }
                     }
-                    Ok(KafkaUserMessage::Update { id, changes }) => {
-                        let mut conn = pool.get().await.unwrap();
-                        update_user_in_db(id, changes, &mut conn).await;
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to deserialize message to KafkaUserMessage | Error: {:?} \
-                             Topic: {}, Partition: {}, Offset: {}",
-                            e,
-                            msg.topic(),
-                            msg.partition(),
-                            msg.offset()
-                        );
-                    }
+                } else {
+                    tracing::error!("Handler for topic {} not found", msg.topic());
                 }
-            } else {
-                tracing::error!("Handler for topic {} not found", msg.topic());
             }
-        }
-    })
-    .await;
+        })
+        .await;
 }
 
 #[instrument("Adding user to db", skip(conn))]
-async fn add_user_to_db(user: UserMessage, conn: &mut AsyncPgConnection) {
+async fn add_user_to_db(user: ReceivedUser, conn: &mut AsyncPgConnection) {
     use crate::schema::users;
 
     let res = diesel::insert_into(users::table)
-        .values(user.clone())
+        .values(&user)
         .execute(conn)
         .await;
 
@@ -100,31 +168,32 @@ async fn add_user_to_db(user: UserMessage, conn: &mut AsyncPgConnection) {
     };
 }
 
-#[instrument("Updating user in db", skip(conn, changes))]
-async fn update_user_in_db(
-    user_id: uuid::Uuid,
-    changes: UpdateUserBody,
-    conn: &mut AsyncPgConnection,
-) {
-    use crate::schema::users::{self, dsl::*};
+#[instrument("Update user info", skip(conn))]
+pub async fn update_user_info(id: Uuid, username: String, email: String, conn: &mut AsyncPgConnection) {
+    use crate::schema::users;
 
-    let res = diesel::update(users.filter(id.eq(user_id)))
+    let res = diesel::update(users::table)
+        .filter(users::id.eq(&id))
         .set((
-            username.eq(&changes.username),
-            email.eq(&changes.email),
-            modified_at.eq(chrono::Utc::now().naive_utc()),
+            users::username.eq(&username),
+            users::email.eq(&email)
         ))
         .execute(conn)
         .await;
 
     match res {
-        Ok(rows_updated) => {
-            if rows_updated > 0 {
-                tracing::info!("User with ID {} updated successfully", user_id);
-            } else {
-                tracing::warn!("No user found with ID {} to update", user_id);
-            }
-        }
-        Err(e) => tracing::error!("Failed to update user: {:?}", e),
+        Ok(_) => tracing::info!("Update user: {} in db", id),
+        Err(e) => tracing::error!("Failed to update user {} : {}", id, e),
     };
 }
+
+#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[ExistingTypePath = "crate::schema::sql_types::UserEventType"]
+#[DbValueStyle = "verbatim"]
+enum DbUserEventType{
+    Register,
+    Login,
+    Logout,
+    Rate,
+    Update
+} 
