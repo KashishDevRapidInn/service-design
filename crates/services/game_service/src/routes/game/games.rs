@@ -1,4 +1,7 @@
+use flume::Sender;
 use helpers::auth_jwt::auth::Claims;
+use kafka::channel::{push_to_broker, KafkaMessage};
+use kafka::models::{UserEventType, UserEventsMessage};
 use lib_config::db::db::PgPool;
 use errors::{AuthError, CustomError};
 use crate::kafka_handler::ReceivedGame;
@@ -31,7 +34,9 @@ pub async fn rate(
     rate_game_req: web::Json<RateGameRequest>, 
     req: web::ReqData<Claims>,
     elastic_client: web::Data<Elasticsearch>,
-    redis_service: web::Data<RedisService>
+    redis_service: web::Data<RedisService>,
+    kafka_producer: web::Data<Sender<KafkaMessage<String>>>
+
 ) -> Result<HttpResponse, CustomError>{
     let req = req.into_inner();
     let session_id= req.sid;
@@ -64,7 +69,7 @@ pub async fn rate(
     let new_rate_game = RateGame {
         id: uuid::Uuid::new_v4(),
         game_slug: slug.clone(),
-        user_id: id_user,
+        user_id: id_user.clone(),
         rating: game_rating.clone(),
         review: game_review,
         created_at: Utc::now().naive_utc(),
@@ -114,6 +119,18 @@ pub async fn rate(
     let new_average_rating = ((current_avg_rating * current_rating_count as f32) + game_rating as f32) / new_rating_count as f32;
     
     ElasticsearchGame::update_game(&elastic_client, &es_game, Some(new_average_rating), Some(new_rating_count)).await.unwrap();
+    let message = UserEventsMessage{
+        user_id: id_user,
+        event_type: UserEventType::Rate {
+            rating: game_rating,
+            game_slug: slug,
+            time: Some(Utc::now().naive_utc())
+        }
+    };
+
+    let _ = push_to_broker(&kafka_producer, &message)
+        .await
+        .context("Failed to send user event message to broker");
 
     Ok(HttpResponse::Ok().json("Rating successfully added."))
 }

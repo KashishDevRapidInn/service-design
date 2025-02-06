@@ -3,6 +3,7 @@ use diesel::prelude::Insertable;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use errors::CustomError;
 use flume::Receiver;
+use kafka::models::{UserEventType, UserEventsMessage};
 use lib_config::db::db::PgPool;
 use rdkafka::message::OwnedMessage;
 use futures::StreamExt;
@@ -45,15 +46,20 @@ pub struct UpdateGameBody {
     pub genre: Option<String>,
 }
 
-#[derive(Deserialize, Insertable, Debug, Clone)]
+#[derive(Deserialize, Insertable, Debug, Serialize, Clone)]
 #[diesel(table_name = crate::schema::users)]
-struct ReceivedUser {
+pub struct ReceivedUser {
     pub id: uuid::Uuid,
     pub username: String,
     pub email: String,
-    pub created_at: NaiveDateTime
+    pub created_at: Option<NaiveDateTime>
 }
 
+#[derive(Deserialize, Serialize, Clone)]
+pub struct UpdateUserBody {
+    pub username: String,
+    pub email: String,
+}
 pub async fn process_kafka_game_message(
     kafka_receiver: Receiver<OwnedMessage>,
     pool: PgPool,
@@ -138,27 +144,44 @@ pub async fn process_kafka_game_message(
                                 msg.partition(),
                                 msg.offset()
                             );
-                            return;
+                            return
                         }
                     };
+                    let message_result = serde_json::from_slice::<UserEventsMessage>(payload);
+                    
+                    match message_result {
+                        Ok(message) => {
+                            match message.event_type {
+                                UserEventType::Register { username, email, created_at } => {
+                                    let user = ReceivedUser{
+                                        id: message.user_id,
+                                        username,
+                                        email,
+                                        created_at
+                                    };
+                                    let mut conn = pool.get().await.unwrap();
+                                    add_user_to_db(user, &mut conn).await;
+                                },
 
-                    let user = match serde_json::from_slice::<ReceivedUser>(payload) {
-                        Ok(user) => user,
+                                UserEventType::Update { username, email } => {
+                                    let mut conn = pool.get().await.unwrap();
+                                    update_user_info(message.user_id, username, email, &mut conn).await;
+                                },
+                                _ => {}
+                            }
+                        },
+
                         Err(e) => {
                             tracing::error!(
-                                "Failed to deserialize user message
+                                "Failed to deserialize message to user
                                 Topic: {}, Partition: {}, Offset: {} | Error: {:?}",
                                 msg.topic(),
                                 msg.partition(),
                                 msg.offset(),
                                 e
                             );
-                            return;
                         }
-                    };
-
-                    let mut conn = pool.get().await.unwrap();
-                    add_user_to_db(user, &mut conn).await;
+                    }
                 } else {
                     tracing::error!("Handler for topic {} not found", msg.topic());
                 }
@@ -167,6 +190,24 @@ pub async fn process_kafka_game_message(
         .await;
 }
 
+#[instrument("Update user info", skip(conn))]
+pub async fn update_user_info(id: Uuid, username: String, email: String, conn: &mut AsyncPgConnection) {
+    use crate::schema::users;
+
+    let res = diesel::update(users::table)
+        .filter(users::id.eq(&id))
+        .set((
+            users::username.eq(&username),
+            users::email.eq(&email)
+        ))
+        .execute(conn)
+        .await;
+
+    match res {
+        Ok(_) => tracing::info!("Update user: {} in db", id),
+        Err(e) => tracing::error!("Failed to update user {} : {}", id, e),
+    };
+}
 
 #[instrument("Adding game to db", skip(conn))]
 async fn add_game_to_db(game: ReceivedGame, conn: &mut AsyncPgConnection) {
@@ -242,7 +283,7 @@ async fn add_user_to_db(user: ReceivedUser, conn: &mut AsyncPgConnection) {
     use crate::schema::users;
 
     let res = diesel::insert_into(users::table)
-        .values(user.clone())
+        .values(&user)
         .execute(conn)
         .await;
 
@@ -251,4 +292,3 @@ async fn add_user_to_db(user: ReceivedUser, conn: &mut AsyncPgConnection) {
         Err(e) => tracing::error!("Failed to add user: {:?}", e),
     };
 }
-

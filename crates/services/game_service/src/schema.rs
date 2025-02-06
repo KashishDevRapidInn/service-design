@@ -34,6 +34,7 @@ diesel::table! {
         username -> Varchar,
         email -> Varchar,
         created_at -> Nullable<Timestamp>,
+        modified_at -> Nullable<Timestamp>,
     }
 }
 
