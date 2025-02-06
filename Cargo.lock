@@ -1095,6 +1095,7 @@ dependencies = [
  "actix-web",
  "anyhow",
  "diesel",
+ "serde_json",
  "thiserror 1.0.69",
 ]
 

@@ -29,11 +29,11 @@ fn diesel_db_response_error(err: &DieselError) -> CustomError {
                     match info.constraint_name() {
                         Some(msg) if msg.contains("username") => (
                             "Username has already been taken", 
-                            StatusCode::CONFLICT
+                            StatusCode::BAD_REQUEST
                         ),
                         Some(msg) if msg.contains("email") => (
                             "Account already associated with this email", 
-                            StatusCode::CONFLICT
+                            StatusCode::BAD_REQUEST
                         ),
                         _ => (
                             "Database error occurred due to unique constraint violation", 
