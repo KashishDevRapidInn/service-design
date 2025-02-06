@@ -58,3 +58,15 @@ The **API Gateway** is responsible for routing incoming requests to the appropri
 - `/user/*` → User Service
 - `/admin/*` → Admin Service
 - `/games/*` → Game Service
+
+## Container Startup Script
+This script is to quickly setup Postgres, Redis, Elasticsearch, and Kafka for local development. You require **docker** to be able to run it.
+
+1. Navigate to the scripts directory: `cd scripts/`
+2. Run it using `./start.sh`
+
+**Notes**:
+- Postgres will be running on URL: `postgres://postgres:password@localhost/` with databases `users`, `admin_db`, `game`
+- Redis will be running on port `6379`
+- Elasticsearch will be running on port `9200`
+- Kafka will be running on port `9092`
