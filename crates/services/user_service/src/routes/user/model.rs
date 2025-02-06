@@ -31,13 +31,13 @@ impl From<User> for UserEventsMessage {
         }
     }
 }
-// #[derive(Debug, DbEnum, serde::Serialize, serde::Deserialize)]
-// #[ExistingTypePath = "crate::schema::sql_types::VerificationStatus"]
-// pub enum EmailVerificationStatus {
-//     Pending,
-//     Verified,
-//     Expired,
-// }
+#[derive(Debug, DbEnum, serde::Serialize, serde::Deserialize)]
+#[ExistingTypePath = "crate::schema::sql_types::StatusEnum"]
+pub enum StatusEnum {
+    Pending,
+    Verified,
+    Expired,
+}
 #[derive(Queryable, Deserialize, Serialize, Debug, Selectable)]
 #[diesel(table_name = crate::schema::email_verifications)]
 pub struct EmailVerification {
@@ -45,5 +45,10 @@ pub struct EmailVerification {
     pub user_id: uuid::Uuid,
     pub created_at: NaiveDateTime,
     pub expires_at: NaiveDateTime,
-    pub status: String,
+    pub status: StatusEnum,
+}
+
+#[derive(Deserialize)]
+pub struct MailQuery{
+    pub token: String
 }

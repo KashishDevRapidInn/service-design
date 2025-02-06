@@ -6,7 +6,7 @@ use lib_config::db::db::PgPool;
 use errors::{AuthError, CustomError};
 use crate::{db_error::DbError, schema::admins::dsl::*};
 use crate::routes::admin::validate_user::validate_credentials;
-use helpers::validations::validations::{UserEmail, UserName, CreateUserBody, LoginUserBody, generate_random_salt};
+use helpers::validations::validations::{check_password_strength, generate_random_salt, CreateUserBody, LoginUserBody, UserEmail, UserName};
 use actix_web::{web, HttpResponse};
 use argon2::{self, password_hash::SaltString, Argon2, PasswordHasher};
 use diesel::prelude::*;
@@ -37,6 +37,7 @@ pub async fn register_admin(
     let (validated_name, validated_email) = admin_data
         .validate()
         .map_err(|err| CustomError::ValidationError(err.to_string()))?;
+    let _= check_password_strength(&admin_password)?;
     let admin_id = Uuid::new_v4();
     let mut conn = pool
         .get()
@@ -67,7 +68,7 @@ pub async fn register_admin(
             status_code: StatusCode::INTERNAL_SERVER_ERROR
         });
     }
-    let (token, sid) = create_jwt(&admin_id.to_string(), Role::User)?;
+    let (token, sid) = create_jwt(&admin_id.to_string(), Role::Admin)?;
     let _= redis_service.set_session(&sid, &admin_id.to_string(), true).await?;
 
     Ok(HttpResponse::Created().json(serde_json::json!({
