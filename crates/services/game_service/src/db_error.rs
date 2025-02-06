@@ -35,7 +35,7 @@ fn diesel_db_response_error(err: &DieselError) -> CustomError{
 
                 diesel::result::DatabaseErrorKind::CheckViolation => {
                     match info.constraint_name() {
-                        Some(msg) if msg.contains("rating") => ("Rating must be between 1 and 5", StatusCode::BAD_REQUEST),
+                        Some("rating_range") => ("Rating must be between 1 and 5", StatusCode::BAD_REQUEST),
                         _ => ("internal server error", StatusCode::INTERNAL_SERVER_ERROR)
                     }
                 },
