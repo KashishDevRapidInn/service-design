@@ -205,6 +205,15 @@ pub async fn view_user(
         .get()
         .await
         .context("Failed to fetch connection from pool")?;
+    let status:StatusEnum = email_verification_dsl::email_verifications
+        .filter(email_verification_dsl::user_id.eq(user_id.clone()))
+        .select(email_verification_dsl::status)
+        .first::<StatusEnum>(&mut conn)
+        .await
+        .map_err(|err| db_errors::DbError(err))?;
+    if(status == StatusEnum::Pending){
+    return Err(CustomError::ValidationError("Please verify your email before proceeding.".to_string()));
+    }
 
     let user: UserResponse = users
         .filter(id.eq(user_id))
@@ -241,6 +250,19 @@ pub async fn update_user(
         ))
     })?;
     let pool = pool.clone();
+    let mut conn = pool
+        .get()
+        .await
+        .context("Failed to fetch connection from pool")?;
+    let status:StatusEnum = email_verification_dsl::email_verifications
+                                    .filter(email_verification_dsl::user_id.eq(user_id.clone()))
+                                    .select(email_verification_dsl::status)
+                                    .first::<StatusEnum>(&mut conn)
+                                    .await
+                                    .map_err(|err| db_errors::DbError(err))?;
+    if(status == StatusEnum::Pending){
+        return Err(CustomError::ValidationError("Please verify your email before proceeding.".to_string()));
+    }
     let user_email = req_update.email.clone();
     let user_name = req_update.username.clone();
     let updated_data = req_update.into_inner();
@@ -248,10 +270,7 @@ pub async fn update_user(
         .validate()
         .map_err(|err| CustomError::ValidationError(err.to_string()))?;
 
-    let mut conn = pool
-        .get()
-        .await
-        .context("Failed to fetch connection from pool")?;
+
 
     tracing::info!("{:?}", user_id);
 
@@ -285,6 +304,13 @@ pub async fn update_user(
     Ok(HttpResponse::Ok().json(json!({"message": "User updated successfully"})))
 }
 
+/******************************************/
+// Verification Email Route
+/******************************************/
+/**
+ * @route   POST /user/verify-email
+ * @access  Public
+ */
 #[instrument(name = "Verify user email", skip(pool, query))]
 pub async fn verify_email(
     pool: web::Data<PgPool>,
@@ -320,16 +346,78 @@ pub async fn verify_email(
         .await
         .map_err(|err| db_errors::DbError(err))?;
 
-    // let user_id = verification_record.unwrap().user_id;
-
-    // let _ = diesel::update(users)
-    //     .filter(users::id.eq(user_id))
-    //     .set(users::email_verified.eq(true))
-    //     .execute(&mut conn)
-    //     .await
-    //     .map_err(|err| db_errors::DbError(err))?;
-
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "message": "Email successfully verified"
+    })))
+}
+
+/******************************************/
+// Resend Verification Email Route
+/******************************************/
+/**
+ * @route   POST /user/resend-verification
+ * @access  JWT Protected
+ */
+#[instrument(name = "Resend email verification", skip(pool, redis_service, req))]
+pub async fn resend_verification_email(
+    pool: web::Data<PgPool>,
+    req: web::ReqData<Claims>,
+    redis_service: web::Data<RedisService>
+) -> Result<HttpResponse, CustomError> {
+    let session_id = req.into_inner().sid;
+    let user_id_str = redis_service.get_user_from_session(&session_id).await?;
+
+    let user_id = Uuid::parse_str(&user_id_str).map_err(|_| {
+        CustomError::AuthenticationError(AuthError::InvalidSession(
+            anyhow::anyhow!("Invalid session ID".to_string()),
+        ))
+    })?;
+    
+    let mut conn = pool
+        .get()
+        .await
+        .context("Failed to fetch connection from pool")?;
+
+    let status: StatusEnum = email_verification_dsl::email_verifications
+        .filter(email_verification_dsl::user_id.eq(user_id.clone()))
+        .select(email_verification_dsl::status)
+        .first::<StatusEnum>(&mut conn)
+        .await
+        .map_err(|err| db_errors::DbError(err))?;
+
+    if status != StatusEnum::Pending {
+        return Err(CustomError::ValidationError("Email is already verified or no pending verification".to_string()));
+    }
+
+    let new_mail_token = generate_token();
+    let expires_at = Utc::now() + Duration::hours(24); // 24 hours validity
+
+    diesel::update(email_verification_dsl::email_verifications)
+        .filter(email_verification_dsl::user_id.eq(user_id))
+        .set((
+            email_verification_dsl::token.eq(&new_mail_token),
+            email_verification_dsl::expires_at.eq(&expires_at.naive_utc()),
+            email_verification_dsl::status.eq(StatusEnum::Pending),
+        ))
+        .execute(&mut conn)
+        .await
+        .map_err(|err| db_errors::DbError(err))?;
+
+    // Send the verification email to the user
+    let user = users
+        .filter(id.eq(user_id))
+        .select((
+            username,
+            email,
+        ))
+        .first::<(String, String)>(&mut conn)
+        .await
+        .map_err(|err| db_errors::DbError(err))?;
+
+    let email_user = user.1;
+    let _ = send_email(&email_user, new_mail_token).await?;
+
+    Ok(HttpResponse::Ok().json(json!({
+        "message": "Verification email resent successfully."
     })))
 }
