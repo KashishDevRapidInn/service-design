@@ -4,7 +4,7 @@ use lib_config::{config::configuration::Settings, db::db::PgPool};
 // use crate::middleware::jwt_auth_middleware;
 use crate::{kafka_handler::process_kafka_message, routes::{
     health_check::health_check,
-    user::crud::{login_user, logout_user, register_user, view_user, update_user, verify_email}
+    user::crud::{login_user, logout_user, register_user, view_user, update_user, verify_email, resend_verification_email}
 }};
 use actix_web::{dev::Server, web, App, HttpServer};
 use actix_web_lab::middleware::from_fn;
@@ -95,6 +95,7 @@ pub async fn run_server(
                     .route("/view_user", web::get().to(view_user))
                     .route("/logout", web::post().to(logout_user))
                     .route("/update", web::post().to(update_user))
+                    .route("/resend-verification", web::post().to(resend_verification_email))
                 )
             )       
     })

@@ -31,7 +31,7 @@ impl From<User> for UserEventsMessage {
         }
     }
 }
-#[derive(Debug, DbEnum, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, DbEnum, serde::Serialize, serde::Deserialize, PartialEq)]
 #[ExistingTypePath = "crate::schema::sql_types::StatusEnum"]
 pub enum StatusEnum {
     Pending,
