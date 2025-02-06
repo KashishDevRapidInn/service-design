@@ -36,13 +36,22 @@ pub enum AuthError {
 impl ResponseError for CustomError {
     fn error_response(&self) -> HttpResponse {
         match self {
-            CustomError::ValidationError(_) => HttpResponse::BadRequest().body(self.to_string()),
+            CustomError::ValidationError(_) => HttpResponse::BadRequest().json(json!({
+                "status": "Failure",
+                "message": self.to_string()
+            })),
             CustomError::DatabaseError{status_code, resp, ..} => HttpResponseBuilder::new(*status_code).json(json!({
                 "status": "Failure",
                 "message": resp
             })),
-            CustomError::AuthenticationError(_) => HttpResponse::Unauthorized().body(self.to_string()),
-            CustomError::UnexpectedError(_) => HttpResponse::InternalServerError().body(self.to_string())
+            CustomError::AuthenticationError(_) => HttpResponse::Unauthorized().json(json!({
+                "status": "Failure",
+                "message": self.to_string()
+            })),
+            CustomError::UnexpectedError(_) => HttpResponse::InternalServerError().json(json!({
+                "status": "Failure",
+                "message": self.to_string()
+            }))
         }
     }
 }
