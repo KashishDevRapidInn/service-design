@@ -48,7 +48,13 @@ pub struct KafkaSettings {
     pub game_consumer_group: String,
     pub user_subscribe_topics: Vec<String>,
 }
-
+#[derive(Debug, Deserialize)]
+pub struct MailSettings {
+    pub mail_domain: String,
+    pub user: String,
+    pub api_key: String,
+    pub mail_url: String
+}
 #[derive(Debug, Deserialize)]
 pub struct Settings {
     pub service: ServiceSettings,
@@ -57,6 +63,7 @@ pub struct Settings {
     pub jwt: JwtSettings,
     pub kafka: KafkaSettings,
     pub domain: DomainSettings,
+    pub mail: MailSettings
 }
 
 // impl Settings {

@@ -1,8 +1,12 @@
-use chrono::NaiveDateTime;
+
+use chrono::{naive, NaiveDateTime};
 use diesel::{Queryable, Selectable};
 use kafka::models::{UserEventsMessage, UserEventType};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use helpers::validations::validations::UpdateUserBody;
+use diesel_derive_enum::DbEnum;
+use diesel::prelude::*;
 
 #[derive(Queryable, Deserialize, Serialize, Debug, Selectable)]
 #[diesel(table_name = crate::schema::users)]
@@ -26,4 +30,20 @@ impl From<User> for UserEventsMessage {
             }
         }
     }
+}
+// #[derive(Debug, DbEnum, serde::Serialize, serde::Deserialize)]
+// #[ExistingTypePath = "crate::schema::sql_types::VerificationStatus"]
+// pub enum EmailVerificationStatus {
+//     Pending,
+//     Verified,
+//     Expired,
+// }
+#[derive(Queryable, Deserialize, Serialize, Debug, Selectable)]
+#[diesel(table_name = crate::schema::email_verifications)]
+pub struct EmailVerification {
+    pub token: String,
+    pub user_id: uuid::Uuid,
+    pub created_at: NaiveDateTime,
+    pub expires_at: NaiveDateTime,
+    pub status: String,
 }
