@@ -70,3 +70,5 @@ This script is to quickly setup Postgres, Redis, Elasticsearch, and Kafka for lo
 - Redis will be running on port `6379`
 - Elasticsearch will be running on port `9200`
 - Kafka will be running on port `9092`
+- To stop all services, run `docker compose down`
+- If you are using linux, make sure you have followed the [linux post-install steps](https://docs.docker.com/engine/install/linux-postinstall/) guide to manage docker as a non-root user.
