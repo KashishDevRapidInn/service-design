@@ -1,13 +1,21 @@
 // @generated automatically by Diesel CLI.
 
+pub mod sql_types {
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "status_enum"))]
+    pub struct StatusEnum;
+}
+
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::StatusEnum;
+
     email_verifications (user_id) {
         token -> Varchar,
         user_id -> Uuid,
         created_at -> Timestamp,
         expires_at -> Timestamp,
-        #[max_length = 255]
-        status -> Varchar,
+        status -> StatusEnum,
     }
 }
 

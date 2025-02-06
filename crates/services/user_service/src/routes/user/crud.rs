@@ -22,7 +22,7 @@ use lib_config::session::redis::RedisService;
 use actix_web::HttpMessage; //for .extensions()
 use anyhow::Context;
 use super::response::UserResponse;
-use super::model::{User, EmailVerification};
+use super::model::{User, EmailVerification, StatusEnum, MailQuery};
 use lib_config::send_mail::send::send_email;
 use helpers::validations::mail_token::generate_token;
 use chrono::Duration;
@@ -88,7 +88,7 @@ pub async fn register_user(
             email_verification_dsl::token.eq(&mail_token),
             email_verification_dsl::user_id.eq(&user_id),
             email_verification_dsl::expires_at.eq(&expires_at.naive_utc()),
-            email_verification_dsl::status.eq("pending")
+            email_verification_dsl::status.eq(StatusEnum::Pending)
         ))
         .execute(&mut conn)
         .await
@@ -284,10 +284,7 @@ pub async fn update_user(
 
     Ok(HttpResponse::Ok().json(json!({"message": "User updated successfully"})))
 }
-#[derive(Deserialize)]
-pub struct MailQuery{
-    token: String
-}
+
 #[instrument(name = "Verify user email", skip(pool, query))]
 pub async fn verify_email(
     pool: web::Data<PgPool>,
@@ -305,7 +302,7 @@ pub async fn verify_email(
     let verification_record: Option<EmailVerification>= email_verification_dsl::email_verifications
         .filter(email_verification_dsl::token.eq(token.clone()))
         .filter(email_verification_dsl::expires_at.gt(Utc::now().naive_utc()))
-        .filter(email_verification_dsl::status.eq("pending"))
+        .filter(email_verification_dsl::status.eq(StatusEnum::Pending))
         .select(EmailVerification::as_select())
         .first::<EmailVerification>(&mut conn)
         .await
@@ -313,12 +310,12 @@ pub async fn verify_email(
         .map_err(|err| db_errors::DbError(err))?;
 
     if verification_record.is_none() {
-        return Err(CustomError::UnexpectedError(anyhow::anyhow!("Invalid or expired token".to_string())));
+        return Err(CustomError::ValidationError("Invalid or expired token".to_string()));
     }
 
     let _ = diesel::update(email_verification_dsl::email_verifications)
         .filter(email_verification_dsl::token.eq(token))
-        .set(email_verification_dsl::status.eq("verified"))
+        .set(email_verification_dsl::status.eq(StatusEnum::Verified))
         .execute(&mut conn)
         .await
         .map_err(|err| db_errors::DbError(err))?;
