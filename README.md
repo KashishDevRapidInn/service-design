@@ -1,6 +1,6 @@
 # Distributed System for User, Admin, and Game Services
 
-This project implements a distributed system comprising three services: **User Service**, **Admin Service**, and **Game Service**. An **API Gateway** handles request routing between these services. The system incorporates **Redis** for session management, **Kafka** for inter-service communication, **Elasticsearch** for game retrieval, and uses **Mockaroo** to generate dummy data for testing.
+This project implements a distributed system comprising three services: **User Service**, **Admin Service**, and **Game Service**. An **API Gateway** handles request routing between these services. The system incorporates **Redis** for session management, **Kafka** for inter-service communication, **Elasticsearch** for game retrieval
 
 ## Overview
 
