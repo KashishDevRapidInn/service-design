@@ -1,0 +1,42 @@
+[service]
+user_service_port = 
+admin_service_port = 
+game_service_port = 
+gateway_service_port= 
+
+[databases]
+user_db_url = ""
+admin_db_url = ""
+game_db_url = ""
+
+[domain]
+user_service_domain= ""
+admin_service_domain= ""
+game_service_domain= ""
+gateway_service_domain= ""
+
+[redis]
+uri= ""
+
+[jwt]
+secret= ""
+
+[kafka]
+user_url = "localhost:9092"
+admin_url = "localhost:9092"
+game_url = "localhost:9092"
+user_topics = ["user_events"]
+admin_topics = ["admin_events", "game_events"]
+game_topics = ["rating_events"]
+user_subscribe_topics = ["admin_events"]
+admin_subscribe_topics = ["user_events"]
+game_subscribe_topics = ["game_events", "user_events"]
+user_consumer_group = "user_consumer_group"
+admin_consumer_group = "admin_consumer_group"
+game_consumer_group = "game_consumer_group"
+
+[mail]
+mail_domain= ""
+user= ""
+api_key= ""
+mail_url= ""
