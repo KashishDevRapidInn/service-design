@@ -19,10 +19,6 @@ function wait_for_postgres() {
 # Wait for PostgreSQL
 wait_for_postgres
 
-export DATABASE_URL_USER="postgres://postgres:password@localhost:5432/users"
-export DATABASE_URL_ADMIN="postgres://postgres:password@localhost:5432/admin_db"
-export DATABASE_URL_GAME="postgres://postgres:password@localhost:5432/game"
-
 run_with_env() {
     local original_path="$(pwd)"  # Store the current directory
     local path="$1"
